@@ -6,9 +6,7 @@
 - **Postura** (barra lenta, estilo Sekiro): cada golpe enche-a, ela baixa sozinha. Encheu por completo: **BleedOut** (ajoelhado e indefeso).
 - Golpes bloqueados enchem as duas barras so um pouco e nao dao stagger. A dificuldade da postura esta no `.ini` (`[Posture] Difficulty`).
 
-Estado: **v0.7.0 (correcoes em validacao)**. Continua a maior parte da logica na DLL. Esta revisao usa um MCM de tres paginas, duas colunas sem linhas vazias de preenchimento, corrige o reconhecimento de um novo toque no bloqueio para o parry e ignora hits ambientais sem ator atacante. As barras experimentais desenhadas fora do TrueHUD ficam desligadas por defeito; a barra especial do TrueHUD continua a mostrar postura.
-
-**Imagens do menu**: as tres imagens fornecidas estao em `Data/Interface/exported/nahidwin1.dds`, `nahidwin2.dds` e `nahidwin3.dds`, no formato DDS usado pelo SkyUI.
+Estado: **v0.8.0 (correcoes em validacao)**. Continua a maior parte da logica na DLL. O MCM tem tres paginas, duas colunas e nao carrega imagens. O parry usa eventos de input do Skyrim para armar apenas em novos toques, e os hits ambientais sem atacante sao ignorados. As barras experimentais desenhadas fora do TrueHUD ficam desligadas por defeito; a barra especial do TrueHUD continua a mostrar postura.
 
 **Oscilacao da camera**: inclui as substituicoes do pacote No staggercamera para Skyrim LE em `Data/meshes/actors/character/animations` e `Data/meshes/actors/character/_1stperson/animations`. Sao arquivos vazios intencionais, tal como no pacote recebido; instale pelo MO2 para poder desativar/remover as substituicoes sem alterar os arquivos originais do jogo.
 
