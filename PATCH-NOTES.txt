@@ -1,10 +1,8 @@
-NahIDWin v0.8 source update
+NahIDWin v0.9 source update
 
-- MCM removed all image loading and uses the stable SkyUI/TrueHUD reset pattern: exactly 3 pages, TOP_TO_BOTTOM, SetCursorPosition(0); GetVersion bumped to 8 so old saved MCM state refreshes.
-- Papyrus compiler stub declares SetCursorPosition.
-- Parry input recognizes Skyrim's blockStart/blockStop and leftAttack controls, reads button value as float, checks release timer, and logs relevant input events plus successful armed windows.
-- Each player hit consumes one parry attempt. The short damage follow-through applies only to the attacker that was parried, not every incoming attacker.
-- Preserved the environmental hit filter, disabled experimental custom HUD bars by default, and included the supplied LE camera/stagger overrides.
-- No MCM DDS images are included or copied by the workflow.
+- MCM: clears stale custom content, balances each page across two columns at section headers, and routes callbacks through option IDs modulo 256 like TrueHUD. GetVersion is 9 to refresh saved MCM state.
+- Parry: default window 300 ms and cooldown 100 ms. An unblocked hit no longer consumes the pending attempt; only a hit marked blocked confirms the parry. Damage suppression still requires the player to be holding block during the window.
+- Kept the existing Inpa Sekiro Explosion/Sound form lookups and parry stagger effect. These are still dispatched through the small Papyrus bridge; core timing and confirmation remain in the DLL.
+- No MCM images are included.
 
-Validation: static checks performed. DLL and Papyrus compilation were not run locally; use the included GitHub Actions workflow.
+Validation: source inspection and log review only. DLL/Papyrus compilation and in-game behavior were not run here; build with the included GitHub Actions workflow and test in Skyrim LE.
