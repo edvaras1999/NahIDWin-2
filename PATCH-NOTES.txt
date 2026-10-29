@@ -6,3 +6,5 @@ NahIDWin v0.9 source update
 - No MCM images are included.
 
 Validation: source inspection and log review only. DLL/Papyrus compilation and in-game behavior were not run here; build with the included GitHub Actions workflow and test in Skyrim LE.
+
+- Papyrus compatibility fix: option map now uses 128 entries and modulo 128 to stay within the engine's array limit.

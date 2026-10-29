@@ -225,9 +225,9 @@ Event OnPageReset(string a_page)
 	UnloadCustomContent()
 	sActivePage = pg
 	BuildTable()
-	sOptionMap = new int[256]
+	sOptionMap = new int[128]
 	int slot = 0
-	while slot < 256
+	while slot < 128
 		sOptionMap[slot] = -1
 		slot += 1
 	endWhile
@@ -276,7 +276,7 @@ Function DrawColumn(int a_page, int a_start, int a_end)
 					sOpt[i] = AddSliderOption(LabelOf(i), cur, FormatFor(i))
 				endif
 				if sOpt[i] >= 0
-					sOptionMap[sOpt[i] % 256] = i
+					sOptionMap[sOpt[i] % 128] = i
 				endif
 			endif
 		endif
@@ -288,7 +288,7 @@ int Function FindOpt(int a_option)
 	if sActivePage < 0
 		return -1
 	endif
-	int i = sOptionMap[a_option % 256]
+	int i = sOptionMap[a_option % 128]
 	if i >= 0 && i < count && sPage[i] == sActivePage && sType[i] != 2
 		return i
 	endif
