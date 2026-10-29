@@ -1,0 +1,13 @@
+NahIDWin v0.7 source update
+
+Changes
+- MCM version bumped to 7; exactly three pages, two columns, three supplied images converted to 768x432 RGBA DDS.
+- Parry only arms on a fresh block-button press; timing and posture buildup reduced.
+- Hits with no actor attacker are ignored by NahIDWin's poise/stagger system, covering the reported environmental spiderweb hit pattern.
+- Extra custom-drawn HUD bars are off by default; the TrueHUD special resource bar remains the supported posture display.
+- Included the supplied No staggercamera LE replacements (25 zero-byte HKX overrides) and configured the build workflow to package images and meshes into the MO2 install artifact.
+
+Validation
+- Static checks confirm three MCM pages, the three image assets, and 25 camera/stagger override files.
+- The DLL and Papyrus compiler were not available locally; native and Papyrus compilation still need the GitHub Actions workflow.
+- The zero-byte HKX overrides were preserved exactly from the user's archive.
