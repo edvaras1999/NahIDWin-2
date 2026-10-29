@@ -462,8 +462,7 @@ jobs:
           $plug = Join-Path $pkg 'Data\SKSE\Plugins'
           $scr = Join-Path $pkg 'Data\scripts'
           $src = Join-Path $pkg 'Data\scripts\source'
-          $img = Join-Path $pkg 'Data\Interface\exported'
-          New-Item -ItemType Directory -Force $plug, $scr, $src, (Join-Path $pkg 'Data\SEQ'), $img | Out-Null
+          New-Item -ItemType Directory -Force $plug, $scr, $src, (Join-Path $pkg 'Data\SEQ') | Out-Null
 
           $dll = Get-ChildItem (Join-Path $ws 'dl\dll') -Recurse -Filter 'NahIDWin.dll' | Select-Object -First 1
           if (-not $dll) { throw 'Nao encontrei a NahIDWin.dll.' }
@@ -479,8 +478,6 @@ jobs:
           Copy-Item (Join-Path $ws 'dist\Data\SKSE\Plugins\NahIDWin.ini') $plug
           Copy-Item (Join-Path $ws 'dist\Data\NahIDWin.esp') (Join-Path $pkg 'Data')
           Copy-Item (Join-Path $ws 'dist\Data\SEQ\NahIDWin.seq') (Join-Path $pkg 'Data\SEQ')
-          $images = Join-Path $ws 'dist\Data\Interface\exported'
-          if (Test-Path $images) { Copy-Item (Join-Path $images '*') $img -Recurse -Force }
           $meshes = Join-Path $ws 'dist\Data\meshes'
           if (Test-Path $meshes) { Copy-Item $meshes (Join-Path $pkg 'Data') -Recurse -Force }
           Get-ChildItem $pkg -Recurse -File | ForEach-Object { $_.FullName.Replace($pkg, '') + '  ' + $_.Length }
