@@ -20,7 +20,7 @@ int count
 int sActivePage = -1
 
 int Function GetVersion()
-	return 9
+	return 10
 EndFunction
 
 Event OnVersionUpdate(int a_version)
@@ -110,15 +110,23 @@ Function BuildTable()
 	AddSetting(0, 1, "Knockback", "OnHeavyWeapon", "Quando arma pesada (golpe normal)", "On heavy weapon (normal hit)", "Cuidado: deixa as armas grandes muito fortes.", "Careful: makes big weapons very strong.", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(0, 0, "Knockback", "HeavyWeaponMinWeight", "Peso minimo de arma pesada", "Heavy weapon minimum weight", "", "", 5.0, 40.0, 1.0, 15.0)
 	AddSetting(1, 2, "", "", "Parry", "Parry", "", "", 0.0, 0.0, 0.0, 0.0)
-	AddSetting(1, 1, "Parry", "Enabled", "Parry ligado", "Parry enabled", "Bloquear logo depois de levantar a guarda conta como parry.", "Blocking right after raising the guard counts as a parry.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(1, 0, "Parry", "WindowMs", "Janela do parry (ms)", "Parry window (ms)", "Tempo depois de tocar no bloqueio em que o parry funciona, mesmo que soltes o botao.", "Time after tapping block in which parry works, even if you release the button.", 50.0, 800.0, 10.0, 300.0)
-	AddSetting(1, 0, "Parry", "CooldownMs", "Recarga do parry (ms)", "Parry cooldown (ms)", "Intervalo minimo entre tentativas; valor baixo permite aparar golpes em sequencia.", "Minimum time between attempts; a low value allows deflecting consecutive attacks.", 0.0, 2000.0, 50.0, 100.0)
-	AddSetting(1, 1, "Parry", "NoDamage", "Parry sem dano", "Parry takes no damage", "O golpe aparado causa dano de vida zero (feito na DLL).", "A parried hit causes zero health damage (done in the DLL).", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 1, "Parry", "Enabled", "Parry ligado", "Parry enabled", "Ao carregar no bloqueio abre uma janela curta: dentro dela ficas imune a dano, poise, postura e stagger.", "Pressing block opens a short window: inside it you are immune to damage, poise, posture and stagger.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 0, "Parry", "WindowMs", "Janela do parry (ms)", "Parry window (ms)", "Duracao da janela de imunidade depois de carregar no bloqueio.", "Length of the immunity window after pressing block.", 100.0, 800.0, 10.0, 250.0)
+	AddSetting(1, 0, "Parry", "CooldownMs", "Recarga entre janelas (ms)", "Cooldown between windows (ms)", "Tempo ate poderes abrir outra janela (100 a 250 e o normal). Valor baixo = aparar golpes em sequencia.", "Time until you can open another window (100 to 250 is normal). Low value = parry consecutive hits.", 50.0, 1000.0, 10.0, 200.0)
+	AddSetting(1, 1, "Parry", "RequireHeld", "Janela so com o bloqueio premido", "Window only while block is held", "Ligado: a janela acaba quando largas o bloqueio (evita tocar sem parar).", "On: the window ends when you release block (stops tap spamming).", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 0, "Parry", "FrontAngleDegrees", "Angulo da frente (graus)", "Front angle (degrees)", "So golpes vindos da frente (para cada lado) contam como parry.", "Only hits from the front (to each side) count as parry.", 30.0, 180.0, 5.0, 100.0)
+	AddSetting(1, 1, "Parry", "NoDamage", "Parry sem dano", "Parry takes no damage", "Dentro da janela o dano de vida e zero (feito na DLL).", "Inside the window health damage is zero (done in the DLL).", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(1, 0, "Parry", "AttackerPostureFraction", "Postura do atacante (fracao)", "Attacker posture (fraction)", "Fracao da postura maxima do atacante que enche no parry.", "Fraction of the attacker's max posture filled on parry.", 0.0, 1.0, 0.05, 0.10)
-	AddSetting(1, 1, "Parry", "AttackerStagger", "Atacante leva stagger", "Attacker staggers", "O atacante leva stagger medio no parry.", "The attacker gets a medium stagger on parry.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 1, "Parry", "AttackerStagger", "Atacante leva stagger leve (recuo)", "Attacker gets light stagger (recoil)", "O atacante recua com um stagger leve. Nao mexe no poise dele.", "The attacker recoils with a light stagger. His poise is untouched.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 0, "Parry", "AttackerStaminaDrain", "Estamina do atacante perdida", "Attacker stamina lost", "Estamina que o atacante perde no parry.", "Stamina the attacker loses on parry.", 0.0, 100.0, 1.0, 20.0)
 	AddSetting(1, 0, "Parry", "DefenderPostureRecoverFraction", "Postura recuperada (fracao)", "Posture recovered (fraction)", "O que a tua postura recupera no parry.", "What your posture recovers on parry.", 0.0, 1.0, 0.05, 0.15)
 	AddSetting(1, 0, "Parry", "DefenderPoiseRecoverFraction", "Poise recuperado (fracao)", "Poise recovered (fraction)", "O que o teu poise recupera no parry.", "What your poise recovers on parry.", 0.0, 1.0, 0.05, 0.25)
-	AddSetting(1, 1, "Parry", "Effects", "Faiscas e som do parry", "Parry sparks and sound", "Usa os efeitos do Inpa Sekiro Combat se estiver instalado.", "Uses Inpa Sekiro Combat effects if installed.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 0, "Parry", "DefenderStaminaRecoverFraction", "Estamina recuperada (fracao)", "Stamina recovered (fraction)", "O que a tua estamina recupera no parry.", "What your stamina recovers on parry.", 0.0, 1.0, 0.05, 0.25)
+	AddSetting(1, 1, "Parry", "Effects", "Faiscas e som do parry", "Parry sparks and sound", "Faiscas e som proprios do mod (precisa do pacote de efeitos).", "The mod's own sparks and sound (needs the effects package).", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 2, "", "", "Bloqueio normal", "Normal block", "", "", 0.0, 0.0, 0.0, 0.0)
+	AddSetting(1, 1, "Block", "DrainEnabled", "Bloqueio gasta estamina do atacante", "Block drains attacker stamina", "Bloqueio normal (sem parry) gasta estamina do atacante. Sem stagger.", "Normal block (no parry) drains the attacker's stamina. No stagger.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(1, 0, "Block", "AttackerStamina", "Estamina do atacante por golpe", "Attacker stamina per hit", "Estamina que o atacante perde por golpe bloqueado.", "Stamina the attacker loses per blocked hit.", 0.0, 60.0, 1.0, 10.0)
+	AddSetting(1, 0, "Block", "PowerAttackMult", "Golpe forte bloqueado (x)", "Blocked power attack (x)", "Multiplicador desse custo em golpes fortes.", "Multiplier of that cost for power attacks.", 0.5, 4.0, 0.1, 1.5)
 	AddSetting(1, 2, "", "", "Furia", "Rage", "", "", 0.0, 0.0, 0.0, 0.0)
 	AddSetting(1, 1, "Rage", "Enabled", "Furia ligada", "Rage enabled", "Imunidade temporaria em troca de vida ou estamina.", "Temporary stagger immunity and damage reduction at a cost.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(1, 0, "Rage", "Key", "Tecla da furia (codigo)", "Rage key (code)", "Codigo DirectInput. 34 = G, 19 = R, 47 = V, 46 = C.", "DirectInput code. 34 = G, 19 = R, 47 = V, 46 = C.", 1.0, 255.0, 1.0, 34.0)

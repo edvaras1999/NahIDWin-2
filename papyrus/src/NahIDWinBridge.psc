@@ -4,7 +4,7 @@ Scriptname NahIDWinBridge extends Quest
    tipo 1,2,3 = stagger leve / medio / pesado  -> lanca um de tres feiticos de stagger do jogo
    tipo 4     = BleedOut (a postura quebrou)   -> toca a animacao de ajoelhado durante alguns segundos
    tipo 5     = stagger pesado + empurrao (golpe forte, criatura gigante)
-   tipo 6     = parry perfeito do jogador      -> faiscas e som (os do Inpa Sekiro, se estiver instalado)
+   tipo 6     = parry perfeito do jogador      -> faiscas e som (do pacote de efeitos)
    tipo 7     = exaustao (estamina a zero)     -> jogador: sem atacar e sem regenerar por uns segundos; NPC: stagger pesado
   O jogador tambem usa eventos de animacao (um por balanco, golpe forte). Parry, furia e dano de vida sao feitos na DLL.
   Nao ha ciclos nem consultas repetidas. }
@@ -148,9 +148,9 @@ Function OnNahStagger(string eventName, string strArg, float numArg, Form sender
 	NahIDWinNative.Ack(packed)
 EndFunction
 
-; Faiscas e som do parry: usa os do mod Inpa Sekiro Combat se estiver instalado (se nao, nao faz nada).
+; Faiscas e som do parry: formas proprias do NahIDWin.esp (os ficheiros .nif/.wav vem do pacote de efeitos).
 Function DoParryFX(Actor victim)
-	Explosion ex = Game.GetFormFromFile(0x00F39875, "Inpa Sekiro Combat.esp") as Explosion
+	Explosion ex = Game.GetFormFromFile(0x00000810, "NahIDWin.esp") as Explosion
 	if ex
 		victim.PlaceAtMe(ex)
 	endif
@@ -158,15 +158,15 @@ Function DoParryFX(Actor victim)
 	int right = victim.GetEquippedItemType(1)
 	Sound snd
 	if left == 10
-		snd = Game.GetFormFromFile(0x00E74160, "Inpa Sekiro Combat.esp") as Sound
+		snd = Game.GetFormFromFile(0x00000811, "NahIDWin.esp") as Sound
 	elseif right == 0
-		snd = Game.GetFormFromFile(0x00FE5A86, "Inpa Sekiro Combat.esp") as Sound
+		snd = Game.GetFormFromFile(0x00000812, "NahIDWin.esp") as Sound
 	elseif right == 2
-		snd = Game.GetFormFromFile(0x00FBD281, "Inpa Sekiro Combat.esp") as Sound
+		snd = Game.GetFormFromFile(0x00000813, "NahIDWin.esp") as Sound
 	elseif right == 4 || right == 6
-		snd = Game.GetFormFromFile(0x00F48B79, "Inpa Sekiro Combat.esp") as Sound
+		snd = Game.GetFormFromFile(0x00000814, "NahIDWin.esp") as Sound
 	else
-		snd = Game.GetFormFromFile(0x000012D2, "Inpa Sekiro Combat.esp") as Sound
+		snd = Game.GetFormFromFile(0x00000815, "NahIDWin.esp") as Sound
 	endif
 	if snd
 		snd.Play(victim)

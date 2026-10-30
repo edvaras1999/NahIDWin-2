@@ -18,7 +18,7 @@
 // confirmacoes do script (e o atraso), e despeja os primeiros bytes das funcoes do jogo que precisamos
 // de identificar para a versao sem Papyrus.
 //
-// v0.8.0: MCM sem imagens; input de bloqueio por eventos nomeados e protecao de dano do parry limitada ao atacante.
+// v0.7.0 (base: projeto corrigido pelo utilizador): parry = janela de imunidade total decidida so pelo tempo (sem esperar pela marca de "bloqueado").
 //   - Dano de vida (hook em Actor::HandleHealthDamage, assinatura verificada): parry = dano zero, furia = reducao,
 //     BleedOut = bonus de dano. Dificuldade propria por GMST (fDiffMult*), sem contas de devolucao de vida.
 //   - Parry: tecla de bloqueio lida na DLL (receptor de input), janela configuravel.
@@ -55,7 +55,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.8.0 (Poise + Postura + parry + barras TrueHUD + MCM)"
+#define PLUGIN_VERSION_STR	"0.7.0 (Poise + Postura + parry em janela de imunidade + furia + barras + MCM)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -217,6 +217,13 @@ namespace
 		float	parryDefPoiseRecover;	// fracao do poise maximo que o defensor recupera
 		int		parryFx;				// faiscas e som (usa os do Inpa Sekiro se instalado)
 		int		parryNoDamage;			// 1 = o golpe aparado nao causa dano de vida (intercetado na funcao de dano do motor)
+		int		parryRequireHeld;		// 1 = a janela acaba quando largas o bloqueio
+		float	parryDefStaminaRecover;	// fracao da estamina maxima que o defensor recupera
+		float	parryAttackerStamina;	// estamina que o atacante perde
+		int		parryFrontAngle;		// graus de cada lado em que o golpe conta
+		int		blockDrain;				// 1 = bloqueio normal gasta estamina do atacante
+		float	blockDrainBase;
+		float	blockDrainPower;
 		int		parryCooldownMs;		// minimo entre duas janelas de parry (evita carregar sem parar)
 
 		// furia: imunidade temporaria em troca de vida ou estamina
@@ -382,14 +389,21 @@ namespace
 		c.poiseWarnFraction	= IniF("TrueHUD", "PoiseWarnFraction", 0.3f);
 
 		c.parryEnabled		= IniI("Parry", "Enabled", 1);
-		c.parryWindowMs		= IniI("Parry", "WindowMs", 300);
+		c.parryWindowMs		= IniI("Parry", "WindowMs", 250);
 		c.parryAttackerPosture = IniF("Parry", "AttackerPostureFraction", 0.10f);
 		c.parryAttackerStagger = IniI("Parry", "AttackerStagger", 1);
 		c.parryDefPostureRecover = IniF("Parry", "DefenderPostureRecoverFraction", 0.15f);
 		c.parryDefPoiseRecover = IniF("Parry", "DefenderPoiseRecoverFraction", 0.25f);
 		c.parryFx			= IniI("Parry", "Effects", 1);
 		c.parryNoDamage		= IniI("Parry", "NoDamage", 1);
-		c.parryCooldownMs	= IniI("Parry", "CooldownMs", 100);
+		c.parryCooldownMs	= IniI("Parry", "CooldownMs", 200);
+		c.parryRequireHeld	= IniI("Parry", "RequireHeld", 1);
+		c.parryDefStaminaRecover = IniF("Parry", "DefenderStaminaRecoverFraction", 0.25f);
+		c.parryAttackerStamina = IniF("Parry", "AttackerStaminaDrain", 20.0f);
+		c.parryFrontAngle	= IniI("Parry", "FrontAngleDegrees", 100);
+		c.blockDrain		= IniI("Block", "DrainEnabled", 1);
+		c.blockDrainBase	= IniF("Block", "AttackerStamina", 10.0f);
+		c.blockDrainPower	= IniF("Block", "PowerAttackMult", 1.5f);
 
 		c.rageEnabled		= IniI("Rage", "Enabled", 1);
 		c.rageKey			= IniI("Rage", "Key", 34);
@@ -507,9 +521,8 @@ namespace
 
 	volatile LONG	g_parries = 0, g_rages = 0;
 	volatile DWORD	g_parryUntil = 0;		// janela do parry: o jogador carregou no bloqueio ha pouco
-	volatile DWORD	g_parryZeroUntil = 0;	// extensao curta de dano zero apenas contra o atacante aparado
-	volatile UInt32	g_parryZeroAttacker = 0;
-	volatile DWORD	g_parryLast = 0;
+	volatile DWORD	g_parryReadyAt = 0;		// ate quando a janela esta em recarga
+	volatile LONG	g_parryHitDone = 0;		// o parry desta janela ja foi confirmado
 	volatile LONG	g_blockHeld = 0;		// impede rearmar o parry enquanto o botao continua premido
 	volatile LONG	g_blockInputLogCount = 0;
 	volatile LONG	g_hdCalls = 0, g_hdParryZero = 0, g_hdRage = 0, g_hdBleed = 0, g_hdLogged = 0;
@@ -863,6 +876,7 @@ namespace
 		int		rageState;		// 0 pronta, 1 em recarga, 2 ativa
 		float	rageFrac;		// ativa: o que resta; em recarga: o que ja recarregou
 		bool	warn;			// poise perto de quebrar
+		float	posture;		// fracao da postura (0..1)
 	};
 	struct EnemyBar
 	{
@@ -872,7 +886,10 @@ namespace
 	};
 	typedef std::map<UInt32, EnemyBar> EnemyBarMap;
 	EnemyBarMap		g_enemyBars;			// protegido pelo lock principal
-	BarInfo			g_playerBar = { 1.0f, 0, 1.0f, false };
+	BarInfo			g_playerBar = { 1.0f, 0, 1.0f, false, 0.0f };
+	DWORD			g_playerBarTick = 0;
+	DWORD			g_barsActiveUntil = 0;
+	bool			g_barsDrawn = false;
 	bool			g_playerBarValid = false;
 	DWORD			g_rageFlashUntil = 0;
 	int				g_prevPlayerRageState = -1;
@@ -1066,41 +1083,40 @@ namespace
 	void FlushBars(DWORD now)
 	{
 		if(g_bar2Dead) return;
-		if(!g_cfg.bar2Enabled)
-		{
-			if(g_bar2View)
-			{
-				BarRect empty[1];
-				InvokeDrawRects(g_bar2View, false, empty, 0);
-				g_bar2View = NULL;
-			}
-			return;
-		}
-		if(now - g_bar2Tick < 50) return;
+		if(!g_cfg.bar2Enabled) { if(!g_barsDrawn) return; }
+		if(now - g_bar2Tick < 10) return;
 		g_bar2Tick = now;
 		GFxMovieView * v = GetHudView();
-		if(!v)
-		{
-			if(g_bar2View)
-			{
-				BarRect empty[1];
-				InvokeDrawRects(g_bar2View, false, empty, 0);
-				g_bar2View = NULL;
-			}
-			return;
-		}
+		if(!v) return;
 		const bool init = (v != g_bar2View);
 		g_bar2View = v;
+		if(!init && !g_barsDrawn && !g_playerBarValid && g_enemyBars.empty()) return;
 		BarRect rects[160];
 		int n = 0;
-		if(g_playerBarValid) n = AppendBarRects(rects, n, 160, g_cfg.bar2X, g_cfg.bar2Y, g_cfg.bar2W, g_cfg.bar2H, g_playerBar, true, now);
-		if(g_cfg.enemyBars) n = AppendEnemyRects(v, rects, n, 160, now);
+		if(g_cfg.bar2Enabled)
+		{
+			// como o TrueHUD: os inimigos so aparecem enquanto o TrueHUD lhes mostra a barra; o jogador, em combate ou quando algo mudou
+			int enemies = 0;
+			if(g_cfg.enemyBars)
+			{
+				n = AppendEnemyRects(v, rects, n, 160, now);
+				enemies = n;
+			}
+			const bool fresh = g_playerBarValid && (now - g_playerBarTick) < 400;
+			if(fresh && (enemies > 0 || now < g_barsActiveUntil))
+				n = AppendBarRects(rects, n, 160, g_cfg.bar2X, g_cfg.bar2Y, g_cfg.bar2W, g_cfg.bar2H, g_playerBar, true, now);
+		}
+		if(n == 0 && !g_barsDrawn && !init) return;
 		if(!InvokeDrawRects(v, init, rects, n))
 		{
 			g_bar2Dead = true;
 			_MESSAGE("WARNING: the extra bars crashed while drawing (caught) - turned off for this session");
 		}
-		else if(init) _MESSAGE("bars: HUD drawing started (poise + rage lines)");
+		else
+		{
+			g_barsDrawn = (n > 0);
+			if(init) _MESSAGE("bars: HUD drawing started (poise + rage lines)");
+		}
 	}
 
 	void RecordEnemyBar(Actor * a, UInt32 id, const BarInfo & info, DWORD now)
@@ -1150,6 +1166,7 @@ namespace
 			}
 			else cur = (g_cfg.hudBar == 1) ? st.pCur : st.cur;
 			info.poise = poiseFrac;
+			info.posture = (st.pMax > 0.0f) ? (st.pCur / st.pMax) : 0.0f;
 			info.warn = (g_cfg.poiseWarnFraction > 0.0f && poiseFrac < g_cfg.poiseWarnFraction);
 			RageDisplay(st, now, !s.isPlayer, &info.rageState, &info.rageFrac);
 			raging = (now < st.rageUntil);
@@ -1161,13 +1178,15 @@ namespace
 			g_prevPlayerRageState = info.rageState;
 			g_playerBar = info;
 			g_playerBarValid = true;
+			g_playerBarTick = now;
+			if(info.poise < 0.995f || info.posture > 0.005f || info.rageState != 0) g_barsActiveUntil = now + 4000;
 			if(raging && g_cfg.rageEnabled && g_cfg.rageZeroStamina) FillStamina(a);
-			FlushBars(now);
 		}
 		else if(g_cfg.bar2Enabled && g_cfg.enemyBars && s.alive)
 		{
 			RecordEnemyBar(a, s.id, info, now);
 		}
+		FlushBars(now);
 		return cur;
 	}
 
@@ -1248,8 +1267,8 @@ namespace
 		g_states.clear();
 		Unlock();
 		g_parryUntil = 0;
-		g_parryZeroUntil = 0;
-		g_parryZeroAttacker = 0;
+		g_parryReadyAt = 0;
+		g_parryHitDone = 0;
 		g_blockHeld = 0;
 		g_playerBarValid = false;
 		g_prevPlayerRageState = -1;
@@ -1347,12 +1366,44 @@ namespace
 
 	// Parry: o atacante (NPC) ganha postura e, se nao estiver imune, leva stagger (ou BleedOut se a postura quebrar).
 	// Devolve o tipo de evento a enviar ao atacante (0 = nenhum).
+	// A janela do parry: so o tempo decide (nao depende de o jogo marcar o golpe como bloqueado).
+	bool ParryWindowActive(DWORD now)
+	{
+		if(!g_cfg.parryEnabled) return false;
+		if(!(now < g_parryUntil)) return false;
+		if(g_cfg.parryRequireHeld && g_blockHeld == 0) return false;
+		return true;
+	}
+
+	// O atacante esta a frente do defensor (dentro de +-parryFrontAngle graus)?
+	bool InFront(Actor * self, Actor * attacker)
+	{
+		__try
+		{
+			if(!self || !attacker) return false;
+			const float dx = attacker->pos.x - self->pos.x;
+			const float dy = attacker->pos.y - self->pos.y;
+			if(dx * dx + dy * dy < 1.0f) return true;
+			const float yaw = self->rot.z;
+			float d = atan2f(dx, dy) - yaw;
+			const float pi = 3.14159265f;
+			while(d > pi) d -= 2.0f * pi;
+			while(d < -pi) d += 2.0f * pi;
+			if(d < 0.0f) d = -d;
+			return d <= (float)g_cfg.parryFrontAngle * pi / 180.0f;
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER)
+		{
+			return true;
+		}
+	}
+
 	int ParryAttacker(const HitInfo & h, DWORD now)
 	{
 		if(!h.attackerIsActor || !h.attackerActor || h.attacker.isPlayer || !h.attacker.alive) return 0;
 		const float mxA = ComputeMax(h.attacker);
 		const float mpA = ComputeMaxPosture(h.attacker);
-		int kind = g_cfg.parryAttackerStagger ? 2 : 0;
+		int kind = g_cfg.parryAttackerStagger ? 1 : 0;	// stagger leve (recuo)
 		Lock();
 		{
 			PoiseState & st = FindOrCreate(h.attacker.id, mxA, mpA, now);
@@ -1376,6 +1427,11 @@ namespace
 			}
 		}
 		Unlock();
+		if(g_cfg.parryAttackerStamina > 0.0f)
+		{
+			float o = 0.0f, m = 0.0f;
+			if(ReadAV(h.attackerActor, 26, &o, &m) && o > 0.0f) RestoreAV(h.attackerActor, 26, -(g_cfg.parryAttackerStamina > o ? o : g_cfg.parryAttackerStamina));
+		}
 		return kind;
 	}
 
@@ -1403,21 +1459,15 @@ namespace
 		const bool blocked = (h.flags & TESHitEvent::kFlag_Blocked) != 0;
 		const bool heavyHit = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0;
 
-		// A tentativa fica armada ate expirar; eventos sem flag de bloqueio nao a cancelam.
-		bool parry = false;
-		if(h.victim.isPlayer)
+		// Janela do parry: decidida so pelo tempo. Dentro dela o jogador esta imune (vida, estamina, poise, postura, stagger).
+		bool parry = false, immune = false;
+		if(h.victim.isPlayer && h.attackerActor && h.attackerIsActor && ParryWindowActive(now) && InFront((Actor *)h.victimRef, h.attackerActor))
 		{
-			const DWORD pu = g_parryUntil;
-			if(g_cfg.parryEnabled && blocked && pu && now < pu)
-			{
-				parry = true;
-				g_parryZeroAttacker = h.attackerId;
-				g_parryZeroUntil = now + 200;
-				g_parryUntil = 0;
-			}
+			immune = true;
+			if(InterlockedExchange(&g_parryHitDone, 1) == 0) parry = true;
 		}
 
-		const float poiseDmg = parry ? 0.0f : (blocked ? dmg * g_cfg.blockedMult : dmg);
+		const float poiseDmg = (parry || immune) ? 0.0f : (blocked ? dmg * g_cfg.blockedMult : dmg);
 		float lowHp = 1.0f;
 		if(h.victim.hpMax > 0.0f)
 		{
@@ -1426,7 +1476,7 @@ namespace
 			if(frac > 1.0f) frac = 1.0f;
 			lowHp = 1.0f + g_cfg.postureLowHealthBonus * (1.0f - frac);
 		}
-		const float postureDmg = parry ? 0.0f : dmg * g_cfg.postureDamageMult * lowHp * (blocked ? g_cfg.postureBlockedMult : 1.0f);
+		const float postureDmg = (parry || immune) ? 0.0f : dmg * g_cfg.postureDamageMult * lowHp * (blocked ? g_cfg.postureBlockedMult : 1.0f);
 
 		// exaustao: a vitima ficou sem estamina?
 		bool exhaustCandidate = false;
@@ -1464,7 +1514,7 @@ namespace
 				}
 			}
 
-			const bool frozen = bleeding || poiseWasImmune || raging;
+			const bool frozen = bleeding || poiseWasImmune || raging || immune;
 			if(parry && !bleeding)
 			{
 				// parry perfeito: o defensor recupera
@@ -1509,7 +1559,7 @@ namespace
 				}
 			}
 			// exaustao (estamina a zero): so se nada mais mais forte aconteceu neste golpe
-			if(exhaustCandidate && kind == 0 && !bleeding && !raging && now >= st.exhaustReadyAt)
+			if(exhaustCandidate && kind == 0 && !bleeding && !raging && !immune && now >= st.exhaustReadyAt)
 			{
 				st.exhaustReadyAt = now + (DWORD)(g_cfg.exhaustCooldown * 1000.0f);
 				kind = 7;
@@ -1547,6 +1597,15 @@ namespace
 			}
 		}
 
+		// bloqueio normal (sem parry): o atacante gasta estamina (e nada mais)
+		if(blocked && !parry && !immune && g_cfg.blockDrain && g_cfg.blockDrainBase > 0.0f && h.victim.isPlayer && h.attackerActor && h.attackerIsActor &&
+			!h.attacker.isPlayer && h.attacker.alive)
+		{
+			const float cost = g_cfg.blockDrainBase * (heavyHit ? g_cfg.blockDrainPower : 1.0f);
+			float o = 0.0f, m = 0.0f;
+			if(ReadAV(h.attackerActor, 26, &o, &m) && o > 0.0f) RestoreAV(h.attackerActor, 26, -(cost > o ? o : cost));
+		}
+
 		if(rageStarted)
 		{
 			InterlockedIncrement(&g_rages);
@@ -1571,6 +1630,11 @@ namespace
 			InterlockedIncrement(&g_parries);
 			_MESSAGE("PARRY: %08X parried %08X", h.victim.id, h.attackerId);
 			if(g_cfg.parryFx) SendStaggerEvent(h.victimRef, h.attackerId, 6);
+			if(g_cfg.parryDefStaminaRecover > 0.0f)
+			{
+				float c = 0.0f, m = 0.0f;
+				if(ReadAV((Actor *)h.victimRef, 26, &c, &m) && m > 0.0f) RestoreAV((Actor *)h.victimRef, 26, m * g_cfg.parryDefStaminaRecover);
+			}
 			const int ak = ParryAttacker(h, now);
 			if(ak && h.attackerActor)
 			{
@@ -1653,10 +1717,8 @@ namespace
 			float result = amount;
 			const char * why = "";
 
-			// A janela só protege enquanto a guarda continua premida; o hit event confirma o bloqueio.
-			const bool parryAttempt = (now < g_parryUntil) && (g_blockHeld != 0);
-			const bool sameParriedAttacker = attacker && attacker->formID == g_parryZeroAttacker && now < g_parryZeroUntil;
-			if(isPlayer && g_cfg.parryEnabled && g_cfg.parryNoDamage && attacker && attacker != self && (parryAttempt || sameParriedAttacker))
+			// Janela do parry: so o tempo decide (e o atacante estar a frente). Fora dela o dano e o bloqueio normal do jogo ficam como estao.
+			if(isPlayer && g_cfg.parryNoDamage && attacker && attacker != self && ParryWindowActive(now) && InFront(self, attacker))
 			{
 				result = 0.0f;
 				why = "parry";
@@ -1885,20 +1947,22 @@ namespace
 		if(!p || Engine::LifeState((Actor *)p) != 0) return;
 		if(!p->actorState.IsWeaponDrawn()) return;
 		const DWORD now = GetTickCount();
-		if(g_parryLast && (now - g_parryLast) < (DWORD)g_cfg.parryCooldownMs) return;
-		g_parryLast = now;
+		if(now < g_parryReadyAt) return;	// recarga curta entre janelas
 		g_parryUntil = now + (DWORD)g_cfg.parryWindowMs;
+		g_parryReadyAt = g_parryUntil + (DWORD)g_cfg.parryCooldownMs;
+		InterlockedExchange(&g_parryHitDone, 0);
 		_MESSAGE("parry input: armed for %d ms", g_cfg.parryWindowMs);
 	}
 
 	void OnBlockUp()
 	{
 		InterlockedExchange(&g_blockHeld, 0);
-		g_parryUntil = 0;
+		if(g_cfg.parryRequireHeld) g_parryUntil = 0;
 	}
 
 	void OnInput(InputEvent * first)
 	{
+		FlushBars(GetTickCount());	// limpa as barras quando o TrueHUD deixou de as mostrar
 		InputStringHolder * strings = InputStringHolder::GetSingleton();
 		for(InputEvent * ev = first; ev; ev = ev->next)
 		{

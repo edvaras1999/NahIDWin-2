@@ -6,9 +6,7 @@
 - **Postura** (barra lenta, estilo Sekiro): cada golpe enche-a, ela baixa sozinha. Encheu por completo: **BleedOut** (ajoelhado e indefeso).
 - Golpes bloqueados enchem as duas barras so um pouco e nao dao stagger. A dificuldade da postura esta no `.ini` (`[Posture] Difficulty`).
 
-Estado: **v0.9.0 (MCM e janela de parry revistos)**. Continua a maior parte da logica na DLL. O MCM tem tres paginas, duas colunas equilibradas, sem imagens, e os cliques/sliders usam o mapeamento de opcoes do TrueHUD. A DLL confirma o parry apenas em hits bloqueados dentro da janela; os hits ambientais sem atacante sao ignorados. O parry usa janela padrao de 300 ms e recarga de 100 ms. As barras experimentais desenhadas fora do TrueHUD ficam desligadas por defeito; a barra especial do TrueHUD continua a mostrar postura.
-
-**Oscilacao da camera**: inclui as substituicoes do pacote No staggercamera para Skyrim LE em `Data/meshes/actors/character/animations` e `Data/meshes/actors/character/_1stperson/animations`. Sao arquivos vazios intencionais, tal como no pacote recebido; instale pelo MO2 para poder desativar/remover as substituicoes sem alterar os arquivos originais do jogo.
+Estado: **v0.7.0** (ainda nao testado no jogo). Novo: o parry passou a ser uma **janela de imunidade total** aberta ao carregar no bloqueio (250 ms, recarga 200 ms, so golpes de frente), decidida so pelo tempo e sem devolver vida; o bloqueio normal do jogo fica intacto e apenas gasta estamina ao atacante; no parry o atacante leva postura, stagger leve e perde estamina (sem mexer no poise). Efeitos (faiscas/sons) proprios no NahIDWin.esp: os ficheiros .nif/.wav vem do pacote `NahIDWin-efeitos-inpa.zip` (instalar a parte, nao vai para o repositorio).
 
 ## Como compilar (tudo no GitHub)
 1. Cria um repositorio novo e envia estes arquivos mantendo as pastas.
