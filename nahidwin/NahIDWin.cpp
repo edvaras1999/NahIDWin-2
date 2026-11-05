@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.20.1 (parry hibrido com o Inpa; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.20.2 (parry do Inpa como na 0.16.0; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -2080,23 +2080,32 @@ namespace
 		const bool blocked = !perilHit && (h.flags & TESHitEvent::kFlag_Blocked) != 0;	// o ataque perigoso ignora o bloqueio
 		const bool heavyHit = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0;
 
-		// Parry (como no Sekiro): o golpe chega pouco depois de carregares no bloqueio (WindowMs). Soltar e carregar de novo reabre a janela.
-		// Dentro dela o jogador esta imune a esse golpe (vida, estamina, poise, postura, stagger). So a DLL decide.
 		bool parry = false, immune = false;
-		if(h.victim.isPlayer && h.attackerActor && h.attackerIsActor && !h.attacker.isPlayer)
+		if(g_cfg.inpaMode)
 		{
+			// Modo Inpa (como na 0.16.0, que funcionava): golpe bloqueado enquanto a janela do parry do Inpa esta aberta (zzzSekiro_control == 1).
+			// A DLL so le o estado; o som, os efeitos e o recuo do atacante sao do Inpa. Um parry por janela (0,5 s).
+			if(h.victim.isPlayer && blocked && h.attackerActor && h.attackerIsActor && !h.attacker.isPlayer)
+			{
+				const float ctl = InpaControlValue();
+				if(g_cfg.diag && g_inpaLogged < 120) { InterlockedIncrement(&g_inpaLogged); _MESSAGE("Inpa: blocked hit on player, control=%.0f (1 = parry window), %u ms after block press", ctl, (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0)); }
+				if(ctl > 0.5f && ctl < 1.5f && now - g_parryReadyAt >= 500)
+				{
+					g_parryReadyAt = now;
+					immune = true; parry = true;
+				}
+			}
+		}
+		else if(h.victim.isPlayer && h.attackerActor && h.attackerIsActor && !h.attacker.isPlayer)
+		{
+			// Sem Inpa: parry da DLL (como no Sekiro): o golpe chega ate WindowMs depois de carregares no bloqueio. Soltar e carregar de novo reabre a janela.
 			const bool inWin = ParryWindowActive(now);
 			if(g_cfg.diag && g_inpaLogged < 150 && (blocked || inWin))
 			{
 				InterlockedIncrement(&g_inpaLogged);
 				_MESSAGE("parry check: hit %u ms after block press (window %d ms, held=%d, game blocked=%d) -> %s", (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0), g_cfg.parryWindowMs, (int)g_blockHeld, blocked ? 1 : 0, (inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor))) ? "PARRY" : "normal block");
 			}
-			if(inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor)))
-			{
-				immune = true; parry = true;
-				if(g_cfg.inpaMode && g_cfg.parryNativeInpa) { InpaSetControl(1.0f); g_ctlResetAt = now + 700; }	// da tempo ao Papyrus do Inpa de processar este golpe
-			}
-			else if(g_cfg.inpaMode && g_cfg.parryNativeInpa && (LONG)(now - g_ctlResetAt) >= 0) InpaSetControl(2.0f);
+			if(inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor))) { immune = true; parry = true; }
 		}
 
 		if(parry)
@@ -2848,17 +2857,6 @@ namespace
 					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d t=%u)", evn->data, (int)g_ownNotify, (unsigned)GetTickCount());
 				}
 			}
-			// um golpe bloqueado so toca uma animacao de impacto no bloqueio (o Inpa e o jogo mandavam as duas)
-			if(!g_ownNotify && g_cfg.enabled && evn && evn->data && _stricmp(evn->data, "blockHitStart") == 0)
-			{
-				const UInt32 bid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
-				if(bid == 0x14)
-				{
-					const DWORD t = GetTickCount();
-					if(g_lastBlockHitAnim && t - g_lastBlockHitAnim < 600) { InterlockedIncrement(&g_shieldBlocked); return true; }
-					g_lastBlockHitAnim = t;
-				}
-			}
 			if(!g_ownNotify && g_cfg.enabled && g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0 && evn && IsExhaustBlockedName(evn->data))
 			{
 				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
@@ -3155,19 +3153,11 @@ namespace
 	{
 		if(InterlockedExchange(&g_blockHeld, 1) != 0) return;
 		g_blockDownTick = GetTickCount();	// novo clique = nova janela de parry
-		// Modo Inpa: a DLL abre a janela do Inpa (control = 1) no instante do clique, sem esperar pelo Papyrus (que tem latencia).
-		// Volta sempre a 2: no fim da janela (tick), ao largar o bloqueio, e em qualquer golpe bloqueado fora da janela.
-		if(g_cfg.inpaMode && g_cfg.parryNativeInpa && g_cfg.parryEnabled)
-		{
-			InpaSetControl(1.0f);
-			g_ctlResetAt = g_blockDownTick + (DWORD)g_cfg.parryWindowMs;
-		}
 	}
 
 	void OnBlockUp()
 	{
 		InterlockedExchange(&g_blockHeld, 0);
-		if(g_cfg.inpaMode && g_cfg.parryNativeInpa && (LONG)(GetTickCount() - g_ctlResetAt) >= 0) InpaSetControl(2.0f);
 	}
 
 	void OnInput(InputEvent * first)

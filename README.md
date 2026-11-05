@@ -190,3 +190,8 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - Exaustao: 5 s por omissao. Menu: velocidade do movimento, dano de poise/postura, estamina recuperada, piso de estamina dos NPCs, regeneracao em combate (%), pausa e fator ao bloquear.
 - Menu: bloquear flechas/magia e resistir veneno passaram para o ini (`[Inpa] BlockArrow/BlockMagic/ResistPoison`, ligados); a frequencia de bloqueio dos NPCs so no ini (`[NpcBlock]`); "Mudar dificuldade" fica no menu, desligada na primeira vez, com os sliders a cinzento ate ligares.
 - Ciclo do Papyrus: 0,5 s em combate, 2,5 s fora.
+
+## v0.20.2 - parry do Inpa como na 0.16.0
+- Modo Inpa: a DLL volta a so ler `zzzSekiro_control` (como na 0.16.0). Deixou de escrever nele.
+- Removido o filtro do duplo `blockHitStart` (v0.18.1): engolia o evento que o script do Inpa usa para disparar o som e os efeitos do parry.
+- O parry da DLL (janela de 300 ms desde o clique) fica so para quando o Inpa nao esta ativo (`[Inpa] Mode=0`).
