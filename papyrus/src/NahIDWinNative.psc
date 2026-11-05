@@ -20,6 +20,8 @@ float Function GetKnockbackForce() global native
 
 ; Armadura abranda a regeneracao de estamina: percentagem (100 = normal). Devolve -1 se estiver desligado (nao mexer).
 float Function GetRegenPercent() global native
+; Regeneracao com combate (exausto 0, a bater 0, a bloquear mais lenta, em combate mais rapida). -1 = nao mexer.
+float Function GetCombatRegen(bool inCombat) global native
 
 ; Exaustao (estamina a zero): duracao em segundos e pedido de entrada (false = em recarga).
 float Function GetExhaustSeconds() global native

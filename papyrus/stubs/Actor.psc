@@ -22,3 +22,5 @@ Function StartCombat(Actor akTarget) native
 bool Function IsBleedingOut() native
 Function Kill(Actor akKiller = None) native
 bool Function IsGhost() native
+Function ModActorValue(string asValueName, float afAmount) native
+bool Function IsInCombat() native

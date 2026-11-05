@@ -26,6 +26,7 @@ Event OnInit()
 	RegisterForModEvent("NahIDWin_Perilous", "OnNahPerilous")
 	RegisterForSleep()
 	RegisterInputs()
+	RegisterForSingleUpdate(0.5)
 	NahIDWinNative.ScriptReady()
 EndEvent
 
@@ -44,8 +45,15 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	RegisterForSleep()
 	NahIDWinNative.SetLivesUsed(livesUsed)
 	executing = false
+	if speedCut > 0.0
+		Game.GetPlayer().ModActorValue("SpeedMult", speedCut)
+	endif
+	speedCut = 0.0
+	exhaustedNow = false
+	lastRegen = -1.0
 	RegisterInputs()
-	NahIDWinNative.Log("bridge 0.18.2: eventos de mod e de animacao registados")
+	RegisterForSingleUpdate(0.5)
+	NahIDWinNative.Log("bridge 0.19.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -97,13 +105,20 @@ Function OnPlayerStagger()
 		return
 	endif
 	sNoStagger = true
+	sNoStaggerEnd = Utility.GetCurrentRealTime() + win
 	Game.GetPlayer().SetAnimationVariableBool("bNoStagger", true)
-	RegisterForSingleUpdate(win)
 EndFunction
 
+float sNoStaggerEnd = 0.0
+
+; Ciclo curto (0,3 s): regeneracao de estamina conforme o combate e fim da imunidade ao stagger.
 Event OnUpdate()
-	Game.GetPlayer().SetAnimationVariableBool("bNoStagger", false)
-	sNoStagger = false
+	if sNoStagger && Utility.GetCurrentRealTime() >= sNoStaggerEnd
+		Game.GetPlayer().SetAnimationVariableBool("bNoStagger", false)
+		sNoStagger = false
+	endif
+	ApplyRegen()
+	RegisterForSingleUpdate(0.3)
 EndEvent
 
 ; ---------------- vidas extra do jogador ----------------
@@ -413,10 +428,13 @@ Function OnNahRage(string eventName, string strArg, float numArg, Form sender)
 EndFunction
 
 ; Regeneracao de estamina do jogador conforme a armadura (100 = normal).
+float lastRegen = -1.0
 Function ApplyRegen()
-	float r = NahIDWinNative.GetRegenPercent()
-	if r > 0.0
-		Game.GetPlayer().SetActorValue("StaminaRateMult", r)
+	Actor pl = Game.GetPlayer()
+	float r = NahIDWinNative.GetCombatRegen(pl.IsInCombat())
+	if r >= 0.0 && Math.Abs(r - lastRegen) > 1.0
+		lastRegen = r
+		pl.SetActorValue("StaminaRateMult", r)
 	endif
 EndFunction
 
@@ -460,7 +478,18 @@ EndEvent
 Function DoExhaustPlayer()
 	Actor pl = Game.GetPlayer()
 	float secs = NahIDWinNative.GetExhaustSeconds()
-	float savedRate = pl.GetActorValue("StaminaRateMult")
+	if exhaustedNow
+		return
+	endif
+	exhaustedNow = true
+	; movimento reduzido (ini [Exhaustion] SpeedFactor, 0.5 = metade)
+	float sf = NahIDWinNative.IniGetF("Exhaustion", "SpeedFactor", 0.5)
+	speedCut = 0.0
+	if sf >= 0.0 && sf < 1.0
+		speedCut = pl.GetActorValue("SpeedMult") * (1.0 - sf)
+		pl.ModActorValue("SpeedMult", -speedCut)
+	endif
+	lastRegen = 0.0
 	pl.SetActorValue("StaminaRateMult", 0.0)
 	; sem bloquear os controlos de combate (isso fazia o jogo embainhar a arma): so deixa de regenerar estamina
 	NahIDWinNative.Log("exhaust player start " + secs)
@@ -470,13 +499,21 @@ Function DoExhaustPlayer()
 		Debug.Notification("NAH-I-D-WIN: EXHAUSTED!")
 	endif
 	Utility.Wait(secs)
-	float r = NahIDWinNative.GetRegenPercent()
-	if r > 0.0
-		pl.SetActorValue("StaminaRateMult", r)
-	else
-		pl.SetActorValue("StaminaRateMult", savedRate)
+	if speedCut > 0.0
+		pl.ModActorValue("SpeedMult", speedCut)
+		speedCut = 0.0
 	endif
+	float rec = NahIDWinNative.IniGetF("Exhaustion", "RecoverStamina", 50.0)
+	if rec > 0.0
+		pl.RestoreActorValue("Stamina", rec)
+	endif
+	exhaustedNow = false
+	lastRegen = -1.0
+	ApplyRegen()
 EndFunction
+
+bool exhaustedNow = false
+float speedCut = 0.0
 
 ; sender = a vitima. numArg = sequencia * 8 + tipo (1..6). strArg = form id do agressor (decimal, pode ser negativo).
 Function OnNahStagger(string eventName, string strArg, float numArg, Form sender)

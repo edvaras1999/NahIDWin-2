@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.18.2 (alvo Soft Target + raio no ecra; bosses por nivel; magia continua; deflexao; ataque perigoso; execucao; bosses; fogo; bleedout fiavel; vidas extra com bleedout; bosses com 2 vidas; barras novas; Supremo Rage com aura; menu retratil; empurrao corrigido; escudo de stagger;  Poise + Postura + estamina; Inpa Sekiro fundido, menu unico, poisebreak do Inpa na nossa postura)"
+#define PLUGIN_VERSION_STR	"0.19.0 (parry nativo; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -199,6 +199,15 @@ namespace
 		float	exhaustSeconds;			// tempo sem poder atacar nem regenerar
 		float	exhaustCooldown;		// minimo entre duas exaustoes
 		int		exhaustNpc;				// NPCs tambem (levam stagger pesado)
+		float	exhaustDmgMult;			// poise e postura: dano a mais enquanto exausto (jogador e NPC)
+		float	npcExhaustSeconds;		// duracao da exaustao de um NPC (so para o dano a mais)
+		float	npcStamFloorPct;		// NPC: o nosso dreno de estamina nao desce abaixo disto (% do maximo); ao chegar la = exaustao
+		float	npcExhaustRecoverPct;	// NPC: estamina (% do maximo) que recupera ao entrar em exaustao
+		int		regenEnabled;			// regeneracao em combate (jogador)
+		float	regenCombatPct;			// % da regeneracao normal em combate
+		int		regenDelayMs;			// sem regenerar durante este tempo depois de um golpe
+		float	regenBlockFactor;		// multiplicador enquanto segura o bloqueio
+		int		parryNativeInpa;		// 1 = a DLL decide o parry pelo tempo desde que se carrega no bloqueio (nao depende do Papyrus do Inpa)
 
 		// empurrao no stagger pesado (so em condicoes especificas)
 		int		kbEnabled;
@@ -418,9 +427,18 @@ namespace
 		c.armorRegenFactor	= IniF("Stamina", "ArmorRegenFactor", 0.3f);
 
 		c.exhaustEnabled	= IniI("Exhaustion", "Enabled", 1);
-		c.exhaustSeconds	= IniF("Exhaustion", "Seconds", 2.5f);
+		c.exhaustSeconds	= IniF("Exhaustion", "Seconds", 10.0f);
 		c.exhaustCooldown	= IniF("Exhaustion", "CooldownSeconds", 8.0f);
 		c.exhaustNpc		= IniI("Exhaustion", "NPCs", 1);
+		c.exhaustDmgMult	= IniF("Exhaustion", "PoiseDamageMult", 1.5f);
+		c.npcExhaustSeconds	= IniF("Exhaustion", "NpcSeconds", 5.0f);
+		c.npcStamFloorPct	= IniF("Exhaustion", "NpcStaminaFloorPercent", 25.0f);
+		c.npcExhaustRecoverPct = IniF("Exhaustion", "NpcRecoverPercent", 50.0f);
+		c.regenEnabled		= IniI("Stamina", "CombatRegenEnabled", 1);
+		c.regenCombatPct	= IniF("Stamina", "CombatRegenPercent", 150.0f);
+		c.regenDelayMs		= IniI("Stamina", "CombatRegenDelayMs", 600);
+		c.regenBlockFactor	= IniF("Stamina", "CombatRegenBlockFactor", 0.4f);
+		c.parryNativeInpa	= IniI("Parry", "NativeInpa", 1);
 
 		c.kbEnabled			= IniI("Knockback", "Enabled", 1);
 		c.kbForce			= IniF("Knockback", "Force", 1.0f);
@@ -629,6 +647,7 @@ namespace
 		DWORD	rageUntil;		// furia (imune) ate este momento
 		DWORD	rageReadyAt;	// proxima furia permitida a partir daqui
 		DWORD	exhaustReadyAt;	// proxima exaustao permitida a partir daqui
+		DWORD	exhaustUntil;	// exausto (leva mais dano de poise/postura) ate aqui
 		DWORD	invulnUntil;	// sem dano de vida ate aqui (vida extra / bleedout de boss)
 		int		bossUsed;		// boss: a vida extra ja foi gasta
 		DWORD	lastExec;		// ultima execucao pedida
@@ -665,6 +684,8 @@ namespace
 	DotEntry		g_dot[16];				// limitador de dano continuo (por alvo+origem+feitico)
 	DWORD			g_reflectTick[4];
 	UInt32			g_reflectId[4];
+	volatile DWORD	g_blockDownTick = 0;	// ultima vez que o botao de bloqueio foi premido (parry nativo do modo Inpa)
+	volatile DWORD	g_lastSwingTick = 0;	// ultimo golpe do jogador (regeneracao em combate)
 	volatile LONG	g_blockHeld = 0;		// impede rearmar o parry enquanto o botao continua premido
 	volatile LONG	g_blockInputLogCount = 0;
 	volatile LONG	g_hdCalls = 0, g_hdParryZero = 0, g_hdRage = 0, g_hdBleed = 0, g_hdLogged = 0, g_hdPlayerLogged = 0;
@@ -729,7 +750,7 @@ namespace
 			}
 			PoiseState s;
 			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0;
-			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0;
+			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
 		else
@@ -1721,6 +1742,42 @@ namespace
 		__except(EXCEPTION_EXECUTE_HANDLER) { return -1.0f; }
 	}
 
+	// Escreve zzzSekiro_control (o Inpa le-o no OnHit do script dele).
+	void InpaSetControl(float v)
+	{
+		InpaControlValue();
+		if(!g_inpaControl) return;
+		__try { *(volatile float *)((UInt8 *)g_inpaControl + 0x20) = v; }
+		__except(EXCEPTION_EXECUTE_HANDLER) { }
+	}
+
+	// Janela do parry em ms: o valor do Inpa (zzzSekiro_parrytimer, segundos) se existir, senao o do .ini.
+	TESGlobal * g_inpaTimer = NULL;
+	bool g_inpaTimerSearched = false;
+	DWORD InpaParryWindowMs()
+	{
+		if(!g_inpaTimerSearched) { g_inpaTimerSearched = true; g_inpaTimer = FindGlobalByName("zzzSekiro_parrytimer"); }
+		float sec = 0.0f;
+		if(g_inpaTimer)
+		{
+			__try { sec = *(volatile float *)((UInt8 *)g_inpaTimer + 0x20); }
+			__except(EXCEPTION_EXECUTE_HANDLER) { sec = 0.0f; }
+		}
+		if(sec >= 0.05f && sec <= 2.0f) return (DWORD)(sec * 1000.0f);
+		return (DWORD)g_cfg.parryWindowMs;
+	}
+
+	// O poise/postura deste ator esta em exaustao (leva mais dano)?
+	bool ExhaustedId(UInt32 id, DWORD now)
+	{
+		bool r = false;
+		Lock();
+		StateMap::iterator it = g_states.find(id);
+		if(it != g_states.end() && it->second.exhaustUntil && (LONG)(it->second.exhaustUntil - now) > 0) r = true;
+		Unlock();
+		return r;
+	}
+
 	// O atacante esta a frente do defensor (dentro de +-parryFrontAngle graus)?
 	bool InFront(Actor * self, Actor * attacker)
 	{
@@ -2011,6 +2068,7 @@ namespace
 		const float mp = ComputeMaxPosture(h.victim);
 		float dmg = PoiseDamage(h);	// dano "cheio" (sem bloqueio)
 		if(dotSustained) dmg *= g_cfg.magicDotMult;
+		if(g_cfg.exhaustDmgMult > 1.0f && ExhaustedId(h.victim.id, now)) dmg *= g_cfg.exhaustDmgMult;
 		const bool perilHit = h.victim.isPlayer && h.attackerIsActor && h.sourceKind != 2 && PerilousActive(h.attackerId, now);
 		if(perilHit) dmg *= g_cfg.perilDmgMult;
 		const bool blocked = !perilHit && (h.flags & TESHitEvent::kFlag_Blocked) != 0;	// o ataque perigoso ignora o bloqueio
@@ -2025,10 +2083,16 @@ namespace
 			{
 				const float ctl = InpaControlValue();
 				if(g_cfg.diag && g_inpaLogged < 60) { InterlockedIncrement(&g_inpaLogged); _MESSAGE("Inpa: blocked hit on player, control=%.0f (1 = parry window)", ctl); }
-				if(ctl > 0.5f && ctl < 1.5f && now - g_parryReadyAt >= 500)
+				// Parry: (a) o Inpa abriu a janela (control == 1) ou (b) a DLL viu o botao de bloqueio premido ha pouco (nao depende do Papyrus)
+				const DWORD win = InpaParryWindowMs();
+				const bool nativeWin = g_cfg.parryNativeInpa && g_blockHeld != 0 && g_blockDownTick && (now - g_blockDownTick) <= win;
+				const bool inpaWin = (ctl > 0.5f && ctl < 1.5f);
+				if(g_cfg.diag && g_inpaLogged < 120) _MESSAGE("Inpa: parry check: since block press=%u ms window=%u ms native=%d inpa=%d held=%d", (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0), (unsigned)win, nativeWin ? 1 : 0, inpaWin ? 1 : 0, (int)g_blockHeld);
+				if((inpaWin || nativeWin) && now - g_parryReadyAt >= 500)
 				{
 					g_parryReadyAt = now;
 					immune = true; parry = true;
+					if(nativeWin && !inpaWin) { InpaSetControl(1.0f); _MESSAGE("PARRY (native): Inpa window was closed (control=%.0f), the DLL opened it", ctl); }
 				}
 			}
 		}
@@ -2071,7 +2135,11 @@ namespace
 		if(g_cfg.exhaustEnabled && (h.victim.isPlayer || g_cfg.exhaustNpc))
 		{
 			float sc = 100.0f, sm = 100.0f;
-			if(ReadAV((Actor *)h.victimRef, 26, &sc, &sm) && sc <= 1.0f) exhaustCandidate = true;
+			if(ReadAV((Actor *)h.victimRef, 26, &sc, &sm))
+			{
+				const float fl = (!h.victim.isPlayer && g_cfg.npcStamFloorPct > 0.0f) ? sm * g_cfg.npcStamFloorPct / 100.0f : 0.0f;
+				if(sc <= 1.0f || (fl > 0.0f && sc <= fl + 1.0f)) exhaustCandidate = true;
+			}
 		}
 
 		bool doExec = false, bossStagger = false;
@@ -2165,12 +2233,24 @@ namespace
 			if(exhaustCandidate && kind == 0 && !bleeding && !raging && !immune && now >= st.exhaustReadyAt)
 			{
 				st.exhaustReadyAt = now + (DWORD)(g_cfg.exhaustCooldown * 1000.0f);
+				st.exhaustUntil = now + (DWORD)((h.victim.isPlayer ? g_cfg.exhaustSeconds : g_cfg.npcExhaustSeconds) * 1000.0f);
 				kind = 7;
 			}
 			after = st.cur;
 			pAfter = st.pCur;
 		}
 		Unlock();
+
+		// NPC exausto: recupera estamina logo (a estamina vazia fazia a IA recuar/fugir do combate)
+		if(kind == 7 && !h.victim.isPlayer && g_cfg.npcExhaustRecoverPct > 0.0f)
+		{
+			float c = 0.0f, m = 0.0f;
+			if(ReadAV((Actor *)h.victimRef, 26, &c, &m))
+			{
+				const float target = m * g_cfg.npcExhaustRecoverPct / 100.0f;
+				if(target > c) { RestoreAV((Actor *)h.victimRef, 26, target - c); _MESSAGE("EXHAUSTION (NPC) %08X: stamina %.0f -> %.0f of %.0f", h.victim.id, c, target, m); }
+			}
+		}
 
 		if(doExec) SendExecuteEvent(h.victimRef, (g_cfg.execBigKill && h.victim.mass >= g_cfg.kbGiantMass) ? "big" : "");
 
@@ -2194,9 +2274,17 @@ namespace
 			!h.attacker.isPlayer && h.attacker.alive && h.sourceKind != 2)
 		{
 			float o = 0.0f, n = 0.0f;
-			const bool ok = AddStamina(h.attackerActor, -g_cfg.hitCostNpc, &o, &n);
+			float cost = g_cfg.hitCostNpc;
+			float ac = 0.0f, am = 0.0f;
+			if(g_cfg.npcStamFloorPct > 0.0f && ReadAV(h.attackerActor, 26, &ac, &am))
+			{
+				const float room = ac - am * g_cfg.npcStamFloorPct / 100.0f;	// nao desce abaixo do piso
+				cost = (room <= 0.0f) ? 0.0f : (room < cost ? room : cost);
+			}
+			const bool ok = (cost > 0.0f) ? AddStamina(h.attackerActor, -cost, &o, &n) : true;
+			if(cost <= 0.0f) { o = ac; n = ac; }
 			InterlockedIncrement(&g_stamHits);
-			if(!ok || (o > g_cfg.hitCostNpc * 1.5f && n > o - g_cfg.hitCostNpc * 0.5f))
+			if(cost > 0.0f && (!ok || (o > cost * 1.5f && n > o - cost * 0.5f)))
 			{
 				g_stamBroken = true;
 				_MESSAGE("WARNING: writing the attacker's stamina does not work on this game (%s: %.1f -> %.1f). NPC stamina cost disabled.", ok ? "no effect" : "crashed (caught)", o, n);
@@ -2207,9 +2295,13 @@ namespace
 		if(blocked && !parry && !immune && g_cfg.blockDrain && g_cfg.blockDrainBase > 0.0f && h.victim.isPlayer && h.attackerActor && h.attackerIsActor &&
 			!h.attacker.isPlayer && h.attacker.alive)
 		{
-			const float cost = g_cfg.blockDrainBase * (heavyHit ? g_cfg.blockDrainPower : 1.0f);
+			float cost = g_cfg.blockDrainBase * (heavyHit ? g_cfg.blockDrainPower : 1.0f);
 			float o = 0.0f, m = 0.0f;
-			if(ReadAV(h.attackerActor, 26, &o, &m) && o > 0.0f) RestoreAV(h.attackerActor, 26, -(cost > o ? o : cost));
+			if(ReadAV(h.attackerActor, 26, &o, &m) && o > 0.0f)
+			{
+				if(g_cfg.npcStamFloorPct > 0.0f) { const float room = o - m * g_cfg.npcStamFloorPct / 100.0f; if(cost > room) cost = room; }
+				if(cost > 0.0f) RestoreAV(h.attackerActor, 26, -(cost > o ? o : cost));
+			}
 		}
 
 		if(rageStarted)
@@ -3065,6 +3157,7 @@ namespace
 	void OnBlockDown()
 	{
 		if(InterlockedExchange(&g_blockHeld, 1) != 0) return;
+		g_blockDownTick = GetTickCount();
 		g_parryUntil = 0;
 		if(!g_cfg.enabled || !g_cfg.parryEnabled || g_cfg.inpaMode) return;
 		if(AnyMenuOpen()) return;
@@ -3191,6 +3284,7 @@ namespace
 	// rightType: codigo do Papyrus (GetEquippedItemType). Devolve 0 se estiver desligado.
 	float N_GetSwingCost(StaticFunctionTag *, SInt32 mode, SInt32 rightType)
 	{
+		g_lastSwingTick = GetTickCount();
 		if(!g_cfg.stamEnabled || g_cfg.swingCostPlayer <= 0.0f) return 0.0f;
 		if(g_cfg.rageEnabled && g_cfg.rageZeroStamina && PlayerRaging()) return 0.0f;	// furia: golpes gratis
 		const DWORD now = GetTickCount();
@@ -3215,6 +3309,23 @@ namespace
 		return (r < 10.0f) ? 10.0f : r;
 	}
 
+	// Regeneracao de estamina do jogador (% para StaminaRateMult, -1 = nao mexer), com combate:
+	// exausto = 0; ha pouco bateu = 0 (tem de parar); a segurar o bloqueio = mais lenta; em combate = mais rapida.
+	float N_GetCombatRegen(StaticFunctionTag *, bool inCombat)
+	{
+		if(!g_cfg.stamEnabled) return -1.0f;
+		const DWORD now = GetTickCount();
+		if(g_exhaustBlockUntil && (LONG)(now - g_exhaustBlockUntil) < 0) return 0.0f;
+		float base = 100.0f;
+		if(g_cfg.armorRegenEnabled) { base = 100.0f / (1.0f + (PlayerArmor() / 100.0f) * g_cfg.armorRegenFactor); if(base < 10.0f) base = 10.0f; }
+		else if(!g_cfg.regenEnabled) return -1.0f;
+		if(!g_cfg.regenEnabled || !inCombat) return base;
+		if(g_lastSwingTick && (now - g_lastSwingTick) < (DWORD)g_cfg.regenDelayMs) return 0.0f;
+		float r = base * g_cfg.regenCombatPct / 100.0f;
+		if(g_blockHeld) r *= g_cfg.regenBlockFactor;
+		return r;
+	}
+
 	float N_GetExhaustSeconds(StaticFunctionTag *)
 	{
 		return g_cfg.exhaustSeconds;
@@ -3236,6 +3347,7 @@ namespace
 			if(now >= st.exhaustReadyAt && now >= st.bleedUntil && now >= st.rageUntil)
 			{
 				st.exhaustReadyAt = now + (DWORD)(g_cfg.exhaustCooldown * 1000.0f);
+				st.exhaustUntil = now + (DWORD)(g_cfg.exhaustSeconds * 1000.0f);
 				ok = true;
 			}
 		}
@@ -3349,6 +3461,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetBleedSeconds", "NahIDWinNative", N_GetBleedSeconds, registry));
 		registry->RegisterFunction(new NativeFunction2 <StaticFunctionTag, float, SInt32, SInt32>("GetSwingCost", "NahIDWinNative", N_GetSwingCost, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetRegenPercent", "NahIDWinNative", N_GetRegenPercent, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, bool>("GetCombatRegen", "NahIDWinNative", N_GetCombatRegen, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("TryExhaust", "NahIDWinNative", N_TryExhaust, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("PowerStart", "NahIDWinNative", N_PowerStart, registry));

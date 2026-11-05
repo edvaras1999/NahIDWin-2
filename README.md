@@ -167,3 +167,10 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 ## v0.18.2
 - Parry: o evento de animacao `blockHitStart` do jogador so passa uma vez por 600 ms (a animacao do parry tocava duas vezes). Registo `PLAYER-ANIM-EVENT` para confirmar.
 - Vigia de NPCs: tambem os hostis do jogo que ainda nao trocaram golpes (`HOSTILE-SEEN`, `FLEE-WATCH`).
+
+## v0.19.0 - parry nativo, exaustao e estamina
+- Parry (modo Inpa): a DLL decide pelo tempo desde que se carrega no bloqueio (`[Parry] NativeInpa=1`). Se o Papyrus do Inpa nao abriu a janela (`control=2`), a DLL abre-a. O log mostra `Inpa: parry check` e `PARRY (native)`.
+- Exaustao: 10 s por omissao, movimento a metade (`SpeedFactor`), mais dano de poise/postura (`PoiseDamageMult`), recupera 50 de estamina no fim (`RecoverStamina`).
+- Regeneracao em combate: mais rapida, atraso curto depois de bater, mais lenta a bloquear, parada enquanto bates (`[Stamina] CombatRegen*`).
+- NPCs: o dreno de estamina do mod nao desce abaixo de 25 % (`NpcStaminaFloorPercent`); ao chegar la entram em exaustao e recuperam 50 %, para a IA nao recuar/fugir.
+- Ciclo de 0,3 s no script ponte (regeneracao e fim da imunidade ao stagger).
