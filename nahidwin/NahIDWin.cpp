@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.19.1 (parry nativo corrigido; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.20.0 (parry refeito; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -456,14 +456,13 @@ namespace
 		c.inpaMode			= IniI("Inpa", "Mode", 0);
 		c.logPlayerDamage	= IniI("Inpa", "LogPlayerDamage", 1);
 		c.powerOwnCost		= IniF("Stamina", "PowerAttackOwnCost", 0.0f);
-		c.parryWindowMs		= IniI("Parry", "WindowMs", 250);
+		c.parryWindowMs		= IniI("Parry", "WindowMs", 300);
 		c.parryAttackerPosture = IniF("Parry", "AttackerPostureFraction", 0.10f);
 		c.parryAttackerStagger = IniI("Parry", "AttackerStagger", 1);
 		c.parryDefPostureRecover = IniF("Parry", "DefenderPostureRecoverFraction", 0.15f);
 		c.parryDefPoiseRecover = IniF("Parry", "DefenderPoiseRecoverFraction", 0.25f);
 		c.parryFx			= IniI("Parry", "Effects", 1);
 		c.parryNoDamage		= IniI("Parry", "NoDamage", 1);
-		if(c.inpaMode) { c.parryFx = 0; c.parryNoDamage = 0; }
 		c.parryCooldownMs	= IniI("Parry", "CooldownMs", 200);
 		c.parryRequireHeld	= IniI("Parry", "RequireHeld", 1);
 		c.parryDefStaminaRecover = IniF("Parry", "DefenderStaminaRecoverFraction", 0.25f);
@@ -1698,9 +1697,8 @@ namespace
 	bool ParryWindowActive(DWORD now)
 	{
 		if(!g_cfg.parryEnabled) return false;
-		if(!(now < g_parryUntil)) return false;
-		if(g_cfg.parryRequireHeld && g_blockHeld == 0) return false;
-		return true;
+		if(g_blockHeld == 0 || !g_blockDownTick) return false;
+		return (DWORD)(now - g_blockDownTick) <= (DWORD)g_cfg.parryWindowMs;
 	}
 
 	// ------------------------------------------------------------------ estado do parry do Inpa (globais do NahIDWin.esp fundido)
@@ -2080,40 +2078,24 @@ namespace
 		const bool blocked = !perilHit && (h.flags & TESHitEvent::kFlag_Blocked) != 0;	// o ataque perigoso ignora o bloqueio
 		const bool heavyHit = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0;
 
-		// Janela do parry: decidida so pelo tempo. Dentro dela o jogador esta imune (vida, estamina, poise, postura, stagger).
+		// Parry (como no Sekiro): o golpe chega pouco depois de carregares no bloqueio (WindowMs). Soltar e carregar de novo reabre a janela.
+		// Dentro dela o jogador esta imune a esse golpe (vida, estamina, poise, postura, stagger). So a DLL decide.
 		bool parry = false, immune = false;
-		if(g_cfg.inpaMode)
+		if(h.victim.isPlayer && h.attackerActor && h.attackerIsActor && !h.attacker.isPlayer)
 		{
-			// Inpa Sekiro: golpe bloqueado enquanto a janela do parry dele esta aberta (zzzSekiro_control == 1). Um parry por janela (0,5 s).
-			if(h.victim.isPlayer && blocked && h.attackerActor && h.attackerIsActor && !h.attacker.isPlayer)
+			const bool inWin = ParryWindowActive(now);
+			if(g_cfg.diag && g_inpaLogged < 150 && (blocked || inWin))
 			{
-				const float ctl = InpaControlValue();
-				if(g_cfg.diag && g_inpaLogged < 60) { InterlockedIncrement(&g_inpaLogged); _MESSAGE("Inpa: blocked hit on player, control=%.0f (1 = parry window)", ctl); }
-				// Parry: (a) o Inpa abriu a janela (control == 1) ou (b) a DLL viu o botao de bloqueio premido ha pouco (nao depende do Papyrus)
-				const DWORD win = InpaParryWindowMs();
-				const bool nativeWin = g_cfg.parryNativeInpa && g_blockHeld != 0 && g_blockDownTick && (now - g_blockDownTick) <= win;
-				// Com o parry nativo ligado so ele decide (o control do Inpa pode ficar preso a 1 e tornava todo o bloqueio num parry)
-				const bool inpaWin = !g_cfg.parryNativeInpa && (ctl > 0.5f && ctl < 1.5f);
-				if(g_cfg.parryNativeInpa && ctl > 0.5f && ctl < 1.5f && !nativeWin && now >= g_ctlResetAt) InpaSetControl(2.0f);
-				if(g_cfg.diag && g_inpaLogged < 120) _MESSAGE("Inpa: parry check: since block press=%u ms window=%u ms native=%d inpa=%d held=%d", (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0), (unsigned)win, nativeWin ? 1 : 0, inpaWin ? 1 : 0, (int)g_blockHeld);
-				if((inpaWin || nativeWin) && now - g_parryReadyAt >= 500)
-				{
-					g_parryReadyAt = now;
-					immune = true; parry = true;
-					if(nativeWin) { InpaSetControl(1.0f); g_ctlResetAt = now + 500; _MESSAGE("PARRY (native): block pressed %u ms ago (Inpa control was %.0f)", (unsigned)(now - g_blockDownTick), ctl); }
-				}
+				InterlockedIncrement(&g_inpaLogged);
+				_MESSAGE("parry check: hit %u ms after block press (window %d ms, held=%d, game blocked=%d) -> %s", (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0), g_cfg.parryWindowMs, (int)g_blockHeld, blocked ? 1 : 0, (inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor))) ? "PARRY" : "normal block");
 			}
-		}
-		else if(h.victim.isPlayer && h.attackerActor && h.attackerIsActor && ParryWindowActive(now) && InFront((Actor *)h.victimRef, h.attackerActor))
-		{
-			immune = true;
-			if(InterlockedExchange(&g_parryHitDone, 1) == 0) parry = true;
+			if(inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor))) { immune = true; parry = true; }
 		}
 
 		if(parry)
 		{
-			// um ataque conta um parry so (as duas vias de deteccao podiam contar o mesmo golpe duas vezes)
-			if(h.attackerId == g_parryAtkId && now - g_parryAtkTick < 500) parry = false;
+			// um golpe conta um parry so (o mesmo atacante nao repete em 300 ms)
+			if(h.attackerId == g_parryAtkId && now - g_parryAtkTick < 300) parry = false;
 			else { g_parryAtkId = h.attackerId; g_parryAtkTick = now; }
 			if(parry && h.sourceKind == 2 && g_cfg.deflectEnabled)
 			{
@@ -2513,7 +2495,7 @@ namespace
 				why = "deflect";
 				InterlockedIncrement(&g_hdParryZero);
 			}
-			else if(isPlayer && !g_cfg.inpaMode && g_cfg.parryNoDamage && attacker && attacker != self && ParryWindowActive(now) && InFront(self, attacker))
+			else if(isPlayer && g_cfg.parryNoDamage && attacker && attacker != self && ParryWindowActive(now) && InFront(self, attacker))
 			{
 				result = 0.0f;
 				why = "parry";
@@ -3165,25 +3147,12 @@ namespace
 	void OnBlockDown()
 	{
 		if(InterlockedExchange(&g_blockHeld, 1) != 0) return;
-		g_blockDownTick = GetTickCount();
-		g_parryUntil = 0;
-		if(!g_cfg.enabled || !g_cfg.parryEnabled || g_cfg.inpaMode) return;
-		if(AnyMenuOpen()) return;
-		PlayerCharacter * p = Engine::Player();
-		if(!p || Engine::LifeState((Actor *)p) != 0) return;
-		if(!p->actorState.IsWeaponDrawn()) return;
-		const DWORD now = GetTickCount();
-		if(now < g_parryReadyAt) return;	// recarga curta entre janelas
-		g_parryUntil = now + (DWORD)g_cfg.parryWindowMs;
-		g_parryReadyAt = g_parryUntil + (DWORD)g_cfg.parryCooldownMs;
-		InterlockedExchange(&g_parryHitDone, 0);
-		_MESSAGE("parry input: armed for %d ms", g_cfg.parryWindowMs);
+		g_blockDownTick = GetTickCount();	// novo clique = nova janela de parry
 	}
 
 	void OnBlockUp()
 	{
 		InterlockedExchange(&g_blockHeld, 0);
-		if(g_cfg.parryRequireHeld) g_parryUntil = 0;
 	}
 
 	void OnInput(InputEvent * first)
@@ -3727,7 +3696,6 @@ namespace
 		if(!ready) return;
 		TickSupreme(now);
 		TickPerilous(now);
-		InpaCtlTick(now);
 		TickFleeWatch(now);
 		if(g_execTick && now - g_execTick < 15000)
 		{

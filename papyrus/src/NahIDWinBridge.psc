@@ -53,7 +53,7 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	lastRegen = -1.0
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.19.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.20.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -596,6 +596,10 @@ Function DoParryFX(Actor victim)
 	endif
 	if snd
 		snd.Play(victim)
+	endif
+	; jogador: animacao de impacto no bloqueio (o script do Inpa que a tocava nao responde)
+	if victim == Game.GetPlayer()
+		Debug.SendAnimationEvent(victim, "blockHitStart")
 	endif
 EndFunction
 

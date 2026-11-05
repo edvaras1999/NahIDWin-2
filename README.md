@@ -177,3 +177,10 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 
 ## v0.19.1 - parry
 - Corrigido: a DLL punha `zzzSekiro_control = 1` e o Inpa nao o repunha a 2, por isso todo o bloqueio seguinte contava como parry. Agora, com `[Parry] NativeInpa=1`, so conta o tempo desde que se carrega no bloqueio; o `control` volta a 2 ao fim de 0,5 s (e sempre que ficar preso a 1).
+
+## v0.20.0 - parry refeito, menu sem "Plus"
+- Parry como no Sekiro, decidido so pela DLL: o golpe chega ate `[Parry] WindowMs` (300 ms) depois de carregares no bloqueio. Soltar e carregar de novo abre outra janela; segurar depois da janela e bloqueio normal.
+- Efeitos do parry (faiscas, som por arma, animacao de impacto, stagger e postura no atacante, estamina) ja funcionam tambem no modo Inpa (antes estavam desligados nesse modo).
+- Removidas as contramedidas: `zzzSekiro_control`, janela de 500 ms, recarga entre janelas. So fica um parry por golpe do mesmo atacante (300 ms).
+- Log: linha `parry check` por golpe bloqueado, com o tempo desde o clique.
+- Menu: retirados "Jogador Plus", "NPC Plus" (menos o bloco Bosses) e "Aliados Plus".

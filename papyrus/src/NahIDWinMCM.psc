@@ -92,7 +92,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 27
+	return 28
 EndFunction
 
 Event OnVersionUpdate(int a_version)
@@ -816,19 +816,8 @@ Function DrawPage0()
 	int b = AddMenuOption(Tr("(beta) Sneak Execution", "(beta) Execucao Furtiva"), SneakName(GVal(20) as int), sFlag)
 	Track(b, 6, 20)
 	GSli(21, "Sneak Execution Damage Mult", "Dano da Execucao Furtiva")
-	Hdr("Player Plus", "Jogador Plus")
-	GTog(8, "Enemy Alert", "Alerta de Inimigo")
-	Hdr("NPC Plus", "NPC Plus")
-	GTog(9, "NPC Block Arrow", "NPC Bloqueia Flechas")
-	GTog(10, "NPC Block Magic", "NPC Bloqueia Magia")
-	GTog(11, "NPC Fist Block", "NPC Bloqueia com Punhos")
-	GTog(12, "Enemy Frost Resist", "Inimigos Resistem a Gelo")
-	GTog(13, "Enemy Stagger to Magic", "Inimigos Cambaleiam com Magia")
+	Hdr("Bosses", "Bosses")
 	DrawBlock(16, "Bosses, giants and dragons", "Bosses, gigantes e dragoes")
-	Hdr("ALLY Plus", "Aliados Plus")
-	GTog(16, "Protect Ally From Execution", "Proteger Aliados de Execucao")
-	GTog(17, "Reduce Ally's Stamina Damage", "Reduzir Dano de Estamina dos Aliados")
-	GTog(18, "Ally Can't Stagger Enemies", "Aliados Nao Fazem Stagger")
 	SetCursorPosition(1)
 	DrawBlock(1, "Poise", "Poise")
 	DrawBlock(2, "Posture", "Postura")
