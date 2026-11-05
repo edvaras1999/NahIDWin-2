@@ -174,3 +174,6 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - Regeneracao em combate: mais rapida, atraso curto depois de bater, mais lenta a bloquear, parada enquanto bates (`[Stamina] CombatRegen*`).
 - NPCs: o dreno de estamina do mod nao desce abaixo de 25 % (`NpcStaminaFloorPercent`); ao chegar la entram em exaustao e recuperam 50 %, para a IA nao recuar/fugir.
 - Ciclo de 0,3 s no script ponte (regeneracao e fim da imunidade ao stagger).
+
+## v0.19.1 - parry
+- Corrigido: a DLL punha `zzzSekiro_control = 1` e o Inpa nao o repunha a 2, por isso todo o bloqueio seguinte contava como parry. Agora, com `[Parry] NativeInpa=1`, so conta o tempo desde que se carrega no bloqueio; o `control` volta a 2 ao fim de 0,5 s (e sempre que ficar preso a 1).

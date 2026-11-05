@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.19.0 (parry nativo; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.19.1 (parry nativo corrigido; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -1751,6 +1751,12 @@ namespace
 		__except(EXCEPTION_EXECUTE_HANDLER) { }
 	}
 
+	volatile DWORD g_ctlResetAt = 0;	// quando devolver zzzSekiro_control a 2 (o Papyrus do Inpa pode nao o fazer)
+	void InpaCtlTick(DWORD now)
+	{
+		if(g_ctlResetAt && (LONG)(now - g_ctlResetAt) >= 0) { g_ctlResetAt = 0; InpaSetControl(2.0f); }
+	}
+
 	// Janela do parry em ms: o valor do Inpa (zzzSekiro_parrytimer, segundos) se existir, senao o do .ini.
 	TESGlobal * g_inpaTimer = NULL;
 	bool g_inpaTimerSearched = false;
@@ -2086,13 +2092,15 @@ namespace
 				// Parry: (a) o Inpa abriu a janela (control == 1) ou (b) a DLL viu o botao de bloqueio premido ha pouco (nao depende do Papyrus)
 				const DWORD win = InpaParryWindowMs();
 				const bool nativeWin = g_cfg.parryNativeInpa && g_blockHeld != 0 && g_blockDownTick && (now - g_blockDownTick) <= win;
-				const bool inpaWin = (ctl > 0.5f && ctl < 1.5f);
+				// Com o parry nativo ligado so ele decide (o control do Inpa pode ficar preso a 1 e tornava todo o bloqueio num parry)
+				const bool inpaWin = !g_cfg.parryNativeInpa && (ctl > 0.5f && ctl < 1.5f);
+				if(g_cfg.parryNativeInpa && ctl > 0.5f && ctl < 1.5f && !nativeWin && now >= g_ctlResetAt) InpaSetControl(2.0f);
 				if(g_cfg.diag && g_inpaLogged < 120) _MESSAGE("Inpa: parry check: since block press=%u ms window=%u ms native=%d inpa=%d held=%d", (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0), (unsigned)win, nativeWin ? 1 : 0, inpaWin ? 1 : 0, (int)g_blockHeld);
 				if((inpaWin || nativeWin) && now - g_parryReadyAt >= 500)
 				{
 					g_parryReadyAt = now;
 					immune = true; parry = true;
-					if(nativeWin && !inpaWin) { InpaSetControl(1.0f); _MESSAGE("PARRY (native): Inpa window was closed (control=%.0f), the DLL opened it", ctl); }
+					if(nativeWin) { InpaSetControl(1.0f); g_ctlResetAt = now + 500; _MESSAGE("PARRY (native): block pressed %u ms ago (Inpa control was %.0f)", (unsigned)(now - g_blockDownTick), ctl); }
 				}
 			}
 		}
@@ -3719,6 +3727,7 @@ namespace
 		if(!ready) return;
 		TickSupreme(now);
 		TickPerilous(now);
+		InpaCtlTick(now);
 		TickFleeWatch(now);
 		if(g_execTick && now - g_execTick < 15000)
 		{
