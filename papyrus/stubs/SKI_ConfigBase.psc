@@ -7,6 +7,7 @@ string Property CurrentPage Auto
 int Property TOP_TO_BOTTOM = 0 AutoReadOnly
 int Property LEFT_TO_RIGHT = 1 AutoReadOnly
 Event OnConfigInit() native
+Event OnGameReload() native
 Event OnVersionUpdate(int a_version) native
 Event OnPageReset(string a_page) native
 Event OnOptionSelect(int a_option) native

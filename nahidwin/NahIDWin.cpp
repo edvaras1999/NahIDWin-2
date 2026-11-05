@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.20.0 (parry refeito; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.20.1 (parry hibrido com o Inpa; exaustao 10 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -427,7 +427,7 @@ namespace
 		c.armorRegenFactor	= IniF("Stamina", "ArmorRegenFactor", 0.3f);
 
 		c.exhaustEnabled	= IniI("Exhaustion", "Enabled", 1);
-		c.exhaustSeconds	= IniF("Exhaustion", "Seconds", 10.0f);
+		c.exhaustSeconds	= IniF("Exhaustion", "Seconds", 5.0f);
 		c.exhaustCooldown	= IniF("Exhaustion", "CooldownSeconds", 8.0f);
 		c.exhaustNpc		= IniI("Exhaustion", "NPCs", 1);
 		c.exhaustDmgMult	= IniF("Exhaustion", "PoiseDamageMult", 1.5f);
@@ -462,7 +462,9 @@ namespace
 		c.parryDefPostureRecover = IniF("Parry", "DefenderPostureRecoverFraction", 0.15f);
 		c.parryDefPoiseRecover = IniF("Parry", "DefenderPoiseRecoverFraction", 0.25f);
 		c.parryFx			= IniI("Parry", "Effects", 1);
+		if(c.inpaMode) c.parryFx = 0;
 		c.parryNoDamage		= IniI("Parry", "NoDamage", 1);
+		if(c.inpaMode) c.parryNoDamage = 0;
 		c.parryCooldownMs	= IniI("Parry", "CooldownMs", 200);
 		c.parryRequireHeld	= IniI("Parry", "RequireHeld", 1);
 		c.parryDefStaminaRecover = IniF("Parry", "DefenderStaminaRecoverFraction", 0.25f);
@@ -2089,7 +2091,12 @@ namespace
 				InterlockedIncrement(&g_inpaLogged);
 				_MESSAGE("parry check: hit %u ms after block press (window %d ms, held=%d, game blocked=%d) -> %s", (unsigned)(g_blockDownTick ? now - g_blockDownTick : 0), g_cfg.parryWindowMs, (int)g_blockHeld, blocked ? 1 : 0, (inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor))) ? "PARRY" : "normal block");
 			}
-			if(inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor))) { immune = true; parry = true; }
+			if(inWin && (blocked || InFront((Actor *)h.victimRef, h.attackerActor)))
+			{
+				immune = true; parry = true;
+				if(g_cfg.inpaMode && g_cfg.parryNativeInpa) { InpaSetControl(1.0f); g_ctlResetAt = now + 700; }	// da tempo ao Papyrus do Inpa de processar este golpe
+			}
+			else if(g_cfg.inpaMode && g_cfg.parryNativeInpa && (LONG)(now - g_ctlResetAt) >= 0) InpaSetControl(2.0f);
 		}
 
 		if(parry)
@@ -3148,11 +3155,19 @@ namespace
 	{
 		if(InterlockedExchange(&g_blockHeld, 1) != 0) return;
 		g_blockDownTick = GetTickCount();	// novo clique = nova janela de parry
+		// Modo Inpa: a DLL abre a janela do Inpa (control = 1) no instante do clique, sem esperar pelo Papyrus (que tem latencia).
+		// Volta sempre a 2: no fim da janela (tick), ao largar o bloqueio, e em qualquer golpe bloqueado fora da janela.
+		if(g_cfg.inpaMode && g_cfg.parryNativeInpa && g_cfg.parryEnabled)
+		{
+			InpaSetControl(1.0f);
+			g_ctlResetAt = g_blockDownTick + (DWORD)g_cfg.parryWindowMs;
+		}
 	}
 
 	void OnBlockUp()
 	{
 		InterlockedExchange(&g_blockHeld, 0);
+		if(g_cfg.inpaMode && g_cfg.parryNativeInpa && (LONG)(GetTickCount() - g_ctlResetAt) >= 0) InpaSetControl(2.0f);
 	}
 
 	void OnInput(InputEvent * first)
@@ -3696,6 +3711,7 @@ namespace
 		if(!ready) return;
 		TickSupreme(now);
 		TickPerilous(now);
+		InpaCtlTick(now);
 		TickFleeWatch(now);
 		if(g_execTick && now - g_execTick < 15000)
 		{

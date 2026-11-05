@@ -184,3 +184,9 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - Removidas as contramedidas: `zzzSekiro_control`, janela de 500 ms, recarga entre janelas. So fica um parry por golpe do mesmo atacante (300 ms).
 - Log: linha `parry check` por golpe bloqueado, com o tempo desde o clique.
 - Menu: retirados "Jogador Plus", "NPC Plus" (menos o bloco Bosses) e "Aliados Plus".
+
+## v0.20.1 - parry hibrido, menu
+- Parry (modo Inpa): a DLL abre a janela do Inpa (`zzzSekiro_control = 1`) no instante em que carregas no bloqueio, sem esperar pelo Papyrus, e fecha-a (volta a 2) ao fim de 300 ms, ao largar o bloqueio ou num golpe bloqueado fora da janela. Os sons e efeitos sao os do Inpa (a DLL nao toca os dela nesse modo). Para voltar ao parry so da DLL: `[Parry] NativeInpa=0`.
+- Exaustao: 5 s por omissao. Menu: velocidade do movimento, dano de poise/postura, estamina recuperada, piso de estamina dos NPCs, regeneracao em combate (%), pausa e fator ao bloquear.
+- Menu: bloquear flechas/magia e resistir veneno passaram para o ini (`[Inpa] BlockArrow/BlockMagic/ResistPoison`, ligados); a frequencia de bloqueio dos NPCs so no ini (`[NpcBlock]`); "Mudar dificuldade" fica no menu, desligada na primeira vez, com os sliders a cinzento ate ligares.
+- Ciclo do Papyrus: 0,5 s em combate, 2,5 s fora.

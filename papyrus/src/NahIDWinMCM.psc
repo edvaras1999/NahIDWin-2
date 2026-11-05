@@ -92,8 +92,43 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 28
+	return 29
 EndFunction
+
+; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
+; A mudanca de dificuldade vem desligada na primeira vez.
+Function ApplyIniGlobal(int gid, string key)
+	GlobalVariable g = GetG(gid)
+	if g
+		float v = NahIDWinNative.IniGetF("Inpa", key, 1.0)
+		if (g.GetValue() > 0.5) != (v > 0.5)
+			g.SetValue(v)
+			GlobalChanged(gid, v)
+		endif
+	endif
+EndFunction
+
+Function ApplyIniGlobals()
+	ApplyIniGlobal(4, "BlockArrow")
+	ApplyIniGlobal(5, "BlockMagic")
+	ApplyIniGlobal(7, "ResistPoison")
+	if NahIDWinNative.IniGetF("Menu", "DifficultyInit", 0.0) < 0.5
+		NahIDWinNative.IniSetF("Menu", "DifficultyInit", 1.0)
+		if GetG(31) && GVal(31) > 0.5
+			GetG(31).SetValue(0.0)
+			GlobalChanged(31, 0.0)
+		endif
+		if GetG(33) && GVal(33) > 0.5
+			GetG(33).SetValue(0.0)
+			GlobalChanged(33, 0.0)
+		endif
+	endif
+EndFunction
+
+Event OnGameReload()
+	parent.OnGameReload()
+	ApplyIniGlobals()
+EndEvent
 
 Event OnVersionUpdate(int a_version)
 	SetupPages()
@@ -106,6 +141,7 @@ EndEvent
 
 Event OnConfigInit()
 	SetupPages()
+	ApplyIniGlobals()
 EndEvent
 
 Function SetupPages()
@@ -483,10 +519,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable()
-	if count > 0 && tableRev == 9
+	if count > 0 && tableRev == 10
 		return
 	endif
-	tableRev = 9
+	tableRev = 10
 	sBlk = new int[128]
 	sType = new int[128]
 	sSec = new string[128]
@@ -540,7 +576,11 @@ Function BuildTable()
 	AddSetting(3, 0, "Rage", "NPCCooldownSeconds", "NPC: recarga (s)", "NPC: cooldown (s)", "Tempo minimo entre duas furias do mesmo NPC.", "Minimum time between two rages of the same NPC.", 5.0, 180.0, 5.0, 45.0)
 	AddSetting(3, 0, "Rage", "NPCCostPercent", "NPC: custo (%)", "NPC: cost (%)", "0 = gratis para os NPCs.", "0 = free for NPCs.", 0.0, 50.0, 1.0, 0.0)
 	AddSetting(4, 1, "Exhaustion", "Enabled", "Exaustao ligada", "Exhaustion enabled", "Estamina a zero: nao podes atacar nem regenerar por um tempo.", "Stamina at zero: you cannot attack or regenerate for a while.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(4, 0, "Exhaustion", "Seconds", "Duracao da exaustao (s)", "Exhaustion duration (s)", "Tempo sem poder atacar e sem regenerar.", "Time without attacking and without regenerating.", 0.5, 10.0, 0.5, 2.5)
+	AddSetting(4, 0, "Exhaustion", "Seconds", "Duracao da exaustao (s)", "Exhaustion duration (s)", "Tempo sem poder atacar e sem regenerar.", "Time without attacking and without regenerating.", 1.0, 30.0, 0.5, 5.0)
+	AddSetting(4, 0, "Exhaustion", "SpeedFactor", "Exaustao: velocidade de movimento (x)", "Exhaustion: movement speed (x)", "0.5 = metade da velocidade enquanto exausto. 1 = sem reducao.", "0.5 = half speed while exhausted. 1 = no slowdown.", 0.1, 1.0, 0.05, 0.5)
+	AddSetting(4, 0, "Exhaustion", "PoiseDamageMult", "Exaustao: dano de poise/postura (x)", "Exhaustion: poise/posture damage (x)", "Quem esta exausto leva mais dano de poise e postura.", "Whoever is exhausted takes more poise and posture damage.", 1.0, 3.0, 0.1, 1.5)
+	AddSetting(4, 0, "Exhaustion", "RecoverStamina", "Exaustao: estamina recuperada no fim", "Exhaustion: stamina recovered at the end", "Estamina que o jogador recupera quando a exaustao acaba.", "Stamina the player gets back when exhaustion ends.", 0.0, 200.0, 5.0, 50.0)
+	AddSetting(4, 0, "Exhaustion", "NpcStaminaFloorPercent", "NPC: piso de estamina (%)", "NPC: stamina floor (%)", "O dreno de estamina do mod nao leva o NPC abaixo disto (evita que recuem/fujam). Ao chegar la entra em exaustao. 0 = sem piso.", "The mods stamina drain never takes an NPC below this (stops them retreating/fleeing). At the floor it gets exhausted. 0 = no floor.", 0.0, 60.0, 5.0, 25.0)
 	AddSetting(4, 0, "Exhaustion", "CooldownSeconds", "Recarga da exaustao (s)", "Exhaustion cooldown (s)", "Tempo minimo entre duas exaustoes.", "Minimum time between two exhaustions.", 0.0, 30.0, 1.0, 8.0)
 	AddSetting(4, 1, "Exhaustion", "NPCs", "Exaustao nos NPCs", "Exhaustion on NPCs", "NPCs sem estamina levam stagger pesado.", "NPCs with no stamina get a heavy stagger.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(5, 1, "Stamina", "Enabled", "Custo de estamina por golpe", "Stamina cost per swing", "Liga o custo de estamina por golpe e a influencia da armadura.", "Enables stamina cost per swing and armor influence.", 0.0, 1.0, 1.0, 1.0)
@@ -548,10 +588,11 @@ Function BuildTable()
 	AddSetting(5, 0, "Stamina", "HitCostNPC", "Gasto de estamina por golpe - NPC", "Stamina spent per hit - NPC", "Estamina que o NPC perde por golpe que desfecha (0 = deixa-se aos mods de estamina).", "0 = left to stamina mods. Otherwise the DLL takes this per hit the NPC lands.", 0.0, 40.0, 1.0, 10.0)
 	AddSetting(5, 0, "Stamina", "PowerAttackOwnCost", "Golpe forte: custo extra do mod (x)", "Power attack: extra mod cost (x)", "0 = so o custo do jogo (PowerAttack Cost Mult acima). Acima de 0 o mod cobra tambem este multiplo do custo base.", "0 = only the game cost (PowerAttack Cost Mult above). Above 0 the mod also charges this multiple of the base cost.", 0.0, 4.0, 0.1, 0.0)
 	AddSetting(5, 0, "Stamina", "BashMult", "Golpe de escudo (x)", "Shield bash (x)", "Multiplicador do custo em golpe de escudo.", "Cost multiplier for shield bashes.", 0.0, 4.0, 0.1, 1.0)
-	AddSetting(6, 0, "NpcBlock", "ChanceMin", "Chance minima de bloqueio dos NPCs", "NPC minimum block chance", "Quanto os NPCs bloqueiam. O Inpa deixa 0.60 (muito). Mais baixo = bloqueiam e fazem parry menos vezes. Nao muda quantos NPCs podem bloquear.", "How often NPCs block. Inpa uses 0.60 (a lot). Lower = they block and parry less often. Does not change how many NPCs can block.", 0.0, 1.0, 0.05, 0.3)
+	AddSetting(5, 0, "Stamina", "CombatRegenPercent", "Regeneracao em combate (%)", "Combat regeneration (%)", "Velocidade da regeneracao de estamina em combate, em % da normal.", "Stamina regeneration speed in combat, in % of normal.", 50.0, 400.0, 10.0, 150.0)
+	AddSetting(5, 0, "Stamina", "CombatRegenDelayMs", "Pausa depois de bater (ms)", "Pause after attacking (ms)", "Sem regenerar durante este tempo depois de um golpe (so em combate).", "No regeneration for this long after a swing (combat only).", 0.0, 3000.0, 50.0, 600.0)
+	AddSetting(5, 0, "Stamina", "CombatRegenBlockFactor", "Regeneracao a bloquear (x)", "Regeneration while blocking (x)", "Multiplicador da regeneracao enquanto seguras o bloqueio.", "Regeneration multiplier while holding block.", 0.0, 1.0, 0.05, 0.4)
 	AddSetting(7, 1, "Stagger", "LightEnabled", "Stagger leve ligado", "Light stagger enabled", "Golpe normal sem bloquear da stagger leve.", "A normal unblocked hit causes a light stagger.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 1, "Stagger", "LightPlayer", "Stagger leve no jogador", "Light stagger on player", "Desligado = o jogador nao e travado por golpes leves.", "Off = the player is not locked by light hits.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(7, 1, "Stagger", "LightNPCs", "Stagger leve nos NPCs", "Light stagger on NPCs", "", "", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 0, "Stagger", "LightCooldownMs", "Espaco do stagger leve - NPCs (ms)", "Light stagger spacing - NPCs (ms)", "Tempo minimo entre dois staggers leves.", "Minimum time between two light staggers.", 100.0, 3000.0, 100.0, 700.0)
 	AddSetting(7, 0, "Stagger", "PlayerImmuneAfterSeconds", "Imunidade do jogador apos stagger (s)", "Player immunity after stagger (s)", "Depois de levares um stagger do jogo, ficas este tempo sem o levar de novo (para bloquear ou esquivar). 0 = desligado. Staggers pesados do mod passam sempre.", "After the game staggers you, you cannot be staggered again for this long (to block or dodge). 0 = off. The mod heavy staggers always go through.", 0.0, 5.0, 0.1, 1.5)
 	AddSetting(7, 1, "Stagger", "MediumOnPowerAttack", "Stagger medio em golpe forte", "Medium stagger on power attack", "Golpe forte ou de escudo sem bloquear da stagger medio.", "An unblocked power attack or bash causes a medium stagger.", 0.0, 1.0, 1.0, 1.0)
@@ -559,10 +600,8 @@ Function BuildTable()
 	AddSetting(7, 0, "Knockback", "Force", "Forca do empurrao", "Knockback force", "0 = sem empurrao.", "0 = no knockback.", 0.0, 5.0, 0.1, 1.0)
 	AddSetting(7, 1, "Knockback", "Player", "Empurrar o jogador", "Knock back the player", "", "", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 1, "Knockback", "OnPowerAttack", "Quando golpe forte", "On power attack", "Inclui o carregado e o de corrida.", "Includes charged and sprinting attacks.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(7, 1, "Knockback", "OnGiantCreature", "Quando criatura gigante", "On giant creature", "", "", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 0, "Knockback", "GiantMassMin", "Massa minima de gigante", "Giant minimum mass", "Massa da raca a partir da qual conta como gigante.", "Race mass from which it counts as giant.", 1.0, 10.0, 0.5, 3.0)
 	AddSetting(7, 1, "Knockback", "OnHeavyWeapon", "Quando arma pesada (golpe normal)", "On heavy weapon (normal hit)", "Cuidado: deixa as armas grandes muito fortes.", "Careful: makes big weapons very strong.", 0.0, 1.0, 1.0, 0.0)
-	AddSetting(7, 0, "Knockback", "HeavyWeaponMinWeight", "Peso minimo de arma pesada", "Heavy weapon minimum weight", "", "", 5.0, 40.0, 1.0, 15.0)
 	AddSetting(8, 0, "Stamina", "TypeMult0", "Custo: Punhos (x)", "Cost: Fists (x)", "Multiplicador do custo de estamina para este tipo de arma.", "Stamina cost multiplier for this weapon type.", 0.0, 4.0, 0.1, 0.6)
 	AddSetting(8, 0, "Stamina", "TypeMult1", "Custo: Espada 1 mao (x)", "Cost: 1H Sword (x)", "Multiplicador do custo de estamina para este tipo de arma.", "Stamina cost multiplier for this weapon type.", 0.0, 4.0, 0.1, 1.0)
 	AddSetting(8, 0, "Stamina", "TypeMult2", "Custo: Adaga (x)", "Cost: Dagger (x)", "Multiplicador do custo de estamina para este tipo de arma.", "Stamina cost multiplier for this weapon type.", 0.0, 4.0, 0.1, 0.6)
@@ -591,13 +630,9 @@ Function BuildTable()
 	AddSetting(13, 2, "HUD", "BarStyle", "Estilo das barras", "Bar style", "Plana ou estilo Sekiro (enche dos dois lados para o centro).", "Flat or Sekiro style (fills from both sides toward the center).", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(13, 2, "HUD", "PlayerPosH", "Jogador: posicao horizontal", "Player: horizontal position", "Esquerda, centro ou direita do ecra.", "Left, center or right of the screen.", 0.0, 2.0, 1.0, 0.0)
 	AddSetting(13, 2, "HUD", "PlayerPosV", "Jogador: posicao vertical", "Player: vertical position", "Cima, centro ou baixo do ecra.", "Top, center or bottom of the screen.", 0.0, 2.0, 1.0, 2.0)
-	AddSetting(13, 0, "HUD", "PlayerShiftX", "Jogador: ajuste X", "Player: X adjust", "Pixeis a somar a posicao escolhida (positivo = direita).", "Pixels added to the chosen position (positive = right).", -640.0, 640.0, 5.0, 120.0)
-	AddSetting(13, 0, "HUD", "PlayerShiftY", "Jogador: ajuste Y", "Player: Y adjust", "Pixeis a somar a posicao escolhida (positivo = baixo).", "Pixels added to the chosen position (positive = down).", -360.0, 360.0, 1.0, -117.0)
 	AddSetting(13, 0, "HUD", "PlayerWidth", "Jogador: largura", "Player: width", "", "", 50.0, 600.0, 5.0, 200.0)
 	AddSetting(13, 2, "HUD", "TargetPosH", "Alvo: posicao horizontal", "Target: horizontal position", "Esquerda, centro ou direita do ecra.", "Left, center or right of the screen.", 0.0, 2.0, 1.0, 1.0)
 	AddSetting(13, 2, "HUD", "TargetPosV", "Alvo: posicao vertical", "Target: vertical position", "Cima, centro ou baixo do ecra.", "Top, center or bottom of the screen.", 0.0, 2.0, 1.0, 0.0)
-	AddSetting(13, 0, "HUD", "TargetShiftX", "Alvo: ajuste X", "Target: X adjust", "Pixeis a somar a posicao escolhida (positivo = direita).", "Pixels added to the chosen position (positive = right).", -640.0, 640.0, 5.0, 0.0)
-	AddSetting(13, 0, "HUD", "TargetShiftY", "Alvo: ajuste Y", "Target: Y adjust", "Pixeis a somar a posicao escolhida (positivo = baixo).", "Pixels added to the chosen position (positive = down).", -360.0, 360.0, 1.0, 55.0)
 	AddSetting(13, 0, "HUD", "TargetWidth", "Alvo: largura (0 = 200)", "Target: width (0 = 200)", "", "", 0.0, 600.0, 5.0, 0.0)
 	AddSetting(13, 1, "HUD", "TargetAnchor", "Alvo: seguir a barra de vida do jogo", "Target: follow the game health bar", "Ligado = por baixo do nome do inimigo (se a barra do jogo estiver visivel).", "On = under the enemy name (if the game bar is visible).", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(14, 1, "Lives", "Enabled", "Vidas extra ligadas", "Extra lives enabled", "Quando morreres, usas uma vida extra se tiveres alguma. Enchem ao dormir numa cama.", "When you would die, an extra life is used if you have one. They refill when you sleep in a bed.", 0.0, 1.0, 1.0, 1.0)
@@ -659,6 +694,14 @@ EndFunction
 
 Function GTog(int gid, string en, string pt)
 	Track(AddToggleOption(Tr(en, pt), GVal(gid) > 0.5, sFlag), 4, gid)
+EndFunction
+
+Function GSliD(int gid, string en, string pt, bool enabled)
+	int f = sFlag
+	if !enabled
+		f = OPTION_FLAG_DISABLED
+	endif
+	Track(AddSliderOption(Tr(en, pt), GVal(gid), GFmt(gid), f), 5, gid)
 EndFunction
 
 Function GSli(int gid, string en, string pt)
@@ -806,10 +849,7 @@ Function DrawPage0()
 	GSli(2, "Stamina Recovery", "Recuperar Estamina no Parry")
 	GTog(3, "Magic Reflect", "Refletir Magia")
 	Hdr("Block Setting", "Bloqueio")
-	GTog(4, "Block Arrow", "Bloquear Flechas")
-	GTog(5, "Block Magic", "Bloquear Magia")
 	GTog(6, "Resist Melee Damage", "Resistir Dano Corpo a Corpo")
-	GTog(7, "Resist Poison/Disease Damage", "Resistir Veneno/Doenca")
 	Hdr("Execution", "Execucao")
 	int a = AddMenuOption(Tr("Shinobi Execution", "Execucao Shinobi"), KillName(KillValue(KillIndex(GVal(19) as int))), sFlag)
 	Track(a, 6, 19)
@@ -842,10 +882,9 @@ Function DrawPage1()
 	SetCursorPosition(1)
 	Hdr("Difficulty Game Setting", "Dificuldade (Game Setting)")
 	GTog(31, "Player Difficulty Change", "Mudar Dificuldade do Jogador")
-	GSli(32, "Player taken damage mult", "Dano que o Jogador Recebe")
+	GSliD(32, "Player taken damage mult", "Dano que o Jogador Recebe", GVal(31) > 0.5)
 	GTog(33, "NPC Difficulty Change", "Mudar Dificuldade dos NPCs")
-	GSli(34, "NPC taken damage mult", "Dano que os NPCs Recebem")
-	DrawBlock(6, "NPC Block Frequency", "Frequencia de Bloqueio dos NPCs")
+	GSliD(34, "NPC taken damage mult", "Dano que os NPCs Recebem", GVal(33) > 0.5)
 	DrawBlock(7, "Stagger and Knockback", "Stagger e Empurrao")
 EndFunction
 
@@ -909,6 +948,9 @@ Event OnOptionSelect(int a_option)
 		GetG(r).SetValue(g)
 		SetToggleOptionValue(a_option, g > 0.5)
 		GlobalChanged(r, g)
+		if r == 31 || r == 33
+			ForcePageReset()
+		endif
 	endif
 EndEvent
 

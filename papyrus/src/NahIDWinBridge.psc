@@ -111,14 +111,19 @@ EndFunction
 
 float sNoStaggerEnd = 0.0
 
-; Ciclo curto (0,3 s): regeneracao de estamina conforme o combate e fim da imunidade ao stagger.
+; Ciclo curto: regeneracao de estamina conforme o combate e fim da imunidade ao stagger.
 Event OnUpdate()
 	if sNoStagger && Utility.GetCurrentRealTime() >= sNoStaggerEnd
 		Game.GetPlayer().SetAnimationVariableBool("bNoStagger", false)
 		sNoStagger = false
 	endif
 	ApplyRegen()
-	RegisterForSingleUpdate(0.3)
+	; ciclo leve: 0,5 s em combate, 2,5 s fora (menos carga no Papyrus)
+	if inCombatNow
+		RegisterForSingleUpdate(0.5)
+	else
+		RegisterForSingleUpdate(2.5)
+	endif
 EndEvent
 
 ; ---------------- vidas extra do jogador ----------------
@@ -429,9 +434,11 @@ EndFunction
 
 ; Regeneracao de estamina do jogador conforme a armadura (100 = normal).
 float lastRegen = -1.0
+bool inCombatNow = false
 Function ApplyRegen()
 	Actor pl = Game.GetPlayer()
-	float r = NahIDWinNative.GetCombatRegen(pl.IsInCombat())
+	inCombatNow = pl.IsInCombat()
+	float r = NahIDWinNative.GetCombatRegen(inCombatNow)
 	if r >= 0.0 && Math.Abs(r - lastRegen) > 1.0
 		lastRegen = r
 		pl.SetActorValue("StaminaRateMult", r)
