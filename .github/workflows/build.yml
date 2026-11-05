@@ -23,7 +23,7 @@ jobs:
             'Engine.h' = 'nahidwin'; 'Log.h' = 'nahidwin'; 'exports.def' = 'nahidwin'; 'LICENSE' = 'nahidwin'
             'NahIDWinBridge.psc' = 'papyrus\src'; 'NahIDWinNative.psc' = 'papyrus\src'; 'NahIDWinMCM.psc' = 'papyrus\src'
             'Actor.psc' = 'papyrus\stubs'; 'Form.psc' = 'papyrus\stubs'; 'Game.psc' = 'papyrus\stubs'
-            'ObjectReference.psc' = 'papyrus\stubs'; 'Quest.psc' = 'papyrus\stubs'; 'Spell.psc' = 'papyrus\stubs'; 'Debug.psc' = 'papyrus\stubs'; 'Explosion.psc' = 'papyrus\stubs'; 'Sound.psc' = 'papyrus\stubs'; 'SKI_ConfigBase.psc' = 'papyrus\stubs'; 'SKI_QuestBase.psc' = 'papyrus\stubs'; 'Utility.psc' = 'papyrus\stubs'
+            'ObjectReference.psc' = 'papyrus\stubs'; 'Quest.psc' = 'papyrus\stubs'; 'Spell.psc' = 'papyrus\stubs'; 'Debug.psc' = 'papyrus\stubs'; 'Explosion.psc' = 'papyrus\stubs'; 'Sound.psc' = 'papyrus\stubs'; 'SKI_ConfigBase.psc' = 'papyrus\stubs'; 'SKI_QuestBase.psc' = 'papyrus\stubs'; 'GlobalVariable.psc' = 'papyrus\stubs'; 'Utility.psc' = 'papyrus\stubs'
             'TESV_Papyrus_Flags.flg' = 'papyrus'
             'NahIDWin.ini' = 'dist\Data\SKSE\Plugins'; 'NahIDWin.esp' = 'dist\Data'; 'NahIDWin.seq' = 'dist\Data\SEQ'
             'make_esp.py' = 'tools'
@@ -301,7 +301,7 @@ jobs:
             'Engine.h' = 'nahidwin'; 'Log.h' = 'nahidwin'; 'exports.def' = 'nahidwin'; 'LICENSE' = 'nahidwin'
             'NahIDWinBridge.psc' = 'papyrus\src'; 'NahIDWinNative.psc' = 'papyrus\src'; 'NahIDWinMCM.psc' = 'papyrus\src'
             'Actor.psc' = 'papyrus\stubs'; 'Form.psc' = 'papyrus\stubs'; 'Game.psc' = 'papyrus\stubs'
-            'ObjectReference.psc' = 'papyrus\stubs'; 'Quest.psc' = 'papyrus\stubs'; 'Spell.psc' = 'papyrus\stubs'; 'Debug.psc' = 'papyrus\stubs'; 'Explosion.psc' = 'papyrus\stubs'; 'Sound.psc' = 'papyrus\stubs'; 'SKI_ConfigBase.psc' = 'papyrus\stubs'; 'SKI_QuestBase.psc' = 'papyrus\stubs'; 'Utility.psc' = 'papyrus\stubs'
+            'ObjectReference.psc' = 'papyrus\stubs'; 'Quest.psc' = 'papyrus\stubs'; 'Spell.psc' = 'papyrus\stubs'; 'Debug.psc' = 'papyrus\stubs'; 'Explosion.psc' = 'papyrus\stubs'; 'Sound.psc' = 'papyrus\stubs'; 'SKI_ConfigBase.psc' = 'papyrus\stubs'; 'SKI_QuestBase.psc' = 'papyrus\stubs'; 'GlobalVariable.psc' = 'papyrus\stubs'; 'Utility.psc' = 'papyrus\stubs'
             'TESV_Papyrus_Flags.flg' = 'papyrus'
             'NahIDWin.ini' = 'dist\Data\SKSE\Plugins'; 'NahIDWin.esp' = 'dist\Data'; 'NahIDWin.seq' = 'dist\Data\SEQ'
             'make_esp.py' = 'tools'
@@ -426,7 +426,7 @@ jobs:
             'Engine.h' = 'nahidwin'; 'Log.h' = 'nahidwin'; 'exports.def' = 'nahidwin'; 'LICENSE' = 'nahidwin'
             'NahIDWinBridge.psc' = 'papyrus\src'; 'NahIDWinNative.psc' = 'papyrus\src'; 'NahIDWinMCM.psc' = 'papyrus\src'
             'Actor.psc' = 'papyrus\stubs'; 'Form.psc' = 'papyrus\stubs'; 'Game.psc' = 'papyrus\stubs'
-            'ObjectReference.psc' = 'papyrus\stubs'; 'Quest.psc' = 'papyrus\stubs'; 'Spell.psc' = 'papyrus\stubs'; 'Debug.psc' = 'papyrus\stubs'; 'Explosion.psc' = 'papyrus\stubs'; 'Sound.psc' = 'papyrus\stubs'; 'SKI_ConfigBase.psc' = 'papyrus\stubs'; 'SKI_QuestBase.psc' = 'papyrus\stubs'; 'Utility.psc' = 'papyrus\stubs'
+            'ObjectReference.psc' = 'papyrus\stubs'; 'Quest.psc' = 'papyrus\stubs'; 'Spell.psc' = 'papyrus\stubs'; 'Debug.psc' = 'papyrus\stubs'; 'Explosion.psc' = 'papyrus\stubs'; 'Sound.psc' = 'papyrus\stubs'; 'SKI_ConfigBase.psc' = 'papyrus\stubs'; 'SKI_QuestBase.psc' = 'papyrus\stubs'; 'GlobalVariable.psc' = 'papyrus\stubs'; 'Utility.psc' = 'papyrus\stubs'
             'TESV_Papyrus_Flags.flg' = 'papyrus'
             'NahIDWin.ini' = 'dist\Data\SKSE\Plugins'; 'NahIDWin.esp' = 'dist\Data'; 'NahIDWin.seq' = 'dist\Data\SEQ'
             'make_esp.py' = 'tools'
@@ -476,8 +476,10 @@ jobs:
           Copy-Item (Join-Path $ws 'papyrus\src\*.psc') $src
 
           Copy-Item (Join-Path $ws 'dist\Data\SKSE\Plugins\NahIDWin.ini') $plug
-          Copy-Item (Join-Path $ws 'dist\Data\NahIDWin.esp') (Join-Path $pkg 'Data')
-          Copy-Item (Join-Path $ws 'dist\Data\SEQ\NahIDWin.seq') (Join-Path $pkg 'Data\SEQ')
+          # O NahIDWin.esp e o .seq NAO vao neste pacote: vem so do pacote privado do Inpa fundido (assim nao ha dois ESP a lutar pelo mesmo nome).
+          Set-Content -Path (Join-Path $pkg 'LEIA-ME.txt') -Value 'NahIDWin: este pacote traz a DLL, os scripts e o .ini. O NahIDWin.esp (com o Inpa fundido) vem no pacote privado. Instala este e depois o privado. Confirma no NahIDWin.log que a primeira linha diz a versao nova.'
+          $iface = Join-Path $ws 'dist\Data\Interface'
+          if (Test-Path $iface) { Copy-Item $iface (Join-Path $pkg 'Data') -Recurse -Force }
           $meshes = Join-Path $ws 'dist\Data\meshes'
           if (Test-Path $meshes) { Copy-Item $meshes (Join-Path $pkg 'Data') -Recurse -Force }
           Get-ChildItem $pkg -Recurse -File | ForEach-Object { $_.FullName.Replace($pkg, '') + '  ' + $_.Length }
