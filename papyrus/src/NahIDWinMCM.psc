@@ -128,39 +128,7 @@ EndFunction
 Event OnGameReload()
 	parent.OnGameReload()
 	ApplyIniGlobals()
-	RegisterInpaEvents()
 EndEvent
-
-Function RegisterInpaEvents()
-	RegisterForModEvent("NahIDWin_InpaFix", "OnNahInpaFix")
-	RegisterForModEvent("NahIDWin_Load", "OnNahLoadMCM")
-EndFunction
-
-; Reaplica os feiticos do Inpa (o mesmo que desligar e ligar o MOD no menu). O script de parry dele pode ficar parado depois de carregar.
-Function ReapplyInpaSpells()
-	if !ModOn()
-		return
-	endif
-	Refresh(zzzSekiro_player_main_spell)
-	Refresh(zzzSekiro_player_main2_spell)
-	Refresh(zzzSekiro_player_main3_spell)
-	Refresh(zzzSekiro_player_parrytimer_spell)
-	Refresh(zzzSekiro_player_parry_spell)
-	Refresh(zzzSekiro_player_parry2_spell)
-	Refresh(zzzSekiro_player_parry3_spell)
-	NahIDWinNative.Log("menu: Inpa spells re-applied")
-EndFunction
-
-Function OnNahInpaFix(string eventName, string strArg, float numArg, Form sender)
-	ReapplyInpaSpells()
-EndFunction
-
-Function OnNahLoadMCM(string eventName, string strArg, float numArg, Form sender)
-	if NahIDWinNative.IniGetF("Inpa", "RefreshOnLoad", 1.0) > 0.5
-		Utility.Wait(4.0)
-		ReapplyInpaSpells()
-	endif
-EndFunction
 
 Event OnVersionUpdate(int a_version)
 	SetupPages()
@@ -174,7 +142,6 @@ EndEvent
 Event OnConfigInit()
 	SetupPages()
 	ApplyIniGlobals()
-	RegisterInpaEvents()
 EndEvent
 
 Function SetupPages()

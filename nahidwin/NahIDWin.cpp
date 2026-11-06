@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.20.3 (parry do Inpa como na 0.16.0 + auto-reparacao; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.21.0 (shout vanilla; sem ESP novo; dupla reacao; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -207,7 +207,7 @@ namespace
 		float	regenCombatPct;			// % da regeneracao normal em combate
 		int		regenDelayMs;			// sem regenerar durante este tempo depois de um golpe
 		float	regenBlockFactor;		// multiplicador enquanto segura o bloqueio
-		int		inpaAutoFix;			// reaplica os feiticos do Inpa quando o script de parry dele nao responde
+		int		swallowGameReaction;	// modo Inpa: engole o blockHitStart do proprio jogo (thread principal) quando a janela do parry esta aberta (evita a dupla reacao)
 		int		parryNativeInpa;		// 1 = a DLL decide o parry pelo tempo desde que se carrega no bloqueio (nao depende do Papyrus do Inpa)
 
 		// empurrao no stagger pesado (so em condicoes especificas)
@@ -440,7 +440,7 @@ namespace
 		c.regenDelayMs		= IniI("Stamina", "CombatRegenDelayMs", 600);
 		c.regenBlockFactor	= IniF("Stamina", "CombatRegenBlockFactor", 0.4f);
 		c.parryNativeInpa	= IniI("Parry", "NativeInpa", 1);
-		c.inpaAutoFix		= IniI("Inpa", "AutoFix", 1);
+		c.swallowGameReaction = IniI("Parry", "SwallowGameReaction", 1);
 
 		c.kbEnabled			= IniI("Knockback", "Enabled", 1);
 		c.kbForce			= IniF("Knockback", "Force", 1.0f);
@@ -501,7 +501,7 @@ namespace
 		c.bossPostureMult = IniF("Bosses", "PostureMult", 1.5f);
 		c.bigPoiseMult	= IniF("BigCreatures", "PoiseMult", 1.5f);
 		c.bigPostureMult = IniF("BigCreatures", "PostureMult", 1.5f);
-		GetPrivateProfileStringA("Supreme", "ActivationAnim", "attackPowerStartForward", c.supAnim, sizeof(c.supAnim), g_iniPath);
+		GetPrivateProfileStringA("Supreme", "ActivationAnim", "shoutStart", c.supAnim, sizeof(c.supAnim), g_iniPath);
 		c.bossEnabled	= IniI("Bosses", "Enabled", 1);
 		c.bossLevelMargin	= IniI("Bosses", "LevelMargin", 7);
 		c.bigRageMult	= IniF("BigCreatures", "RageDurationMult", 1.5f);
@@ -687,6 +687,8 @@ namespace
 	DotEntry		g_dot[16];				// limitador de dano continuo (por alvo+origem+feitico)
 	DWORD			g_reflectTick[4];
 	UInt32			g_reflectId[4];
+	volatile DWORD	g_mainTid = 0;			// thread principal do jogo (os eventos do proprio jogo vem daqui; os do Papyrus vem da VM)
+	volatile LONG	g_swallowed = 0;
 	volatile DWORD	g_blockDownTick = 0;	// ultima vez que o botao de bloqueio foi premido (parry nativo do modo Inpa)
 	volatile DWORD	g_lastSwingTick = 0;	// ultimo golpe do jogador (regeneracao em combate)
 	volatile LONG	g_blockHeld = 0;		// impede rearmar o parry enquanto o botao continua premido
@@ -1850,17 +1852,6 @@ namespace
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER) { return -1; }
 	}
-	// O script de parry do Inpa nao responde (control continua a 2 mesmo logo a seguir ao clique): pede ao menu para reaplicar os feiticos do Inpa.
-	volatile LONG g_inpaMiss = 0;
-	volatile DWORD g_inpaFixTick = 0;
-	void SendInpaFixEvent()
-	{
-		EventDispatcher<PoiseModEvent> * d = NULL;
-		if(g_messaging) d = (EventDispatcher<PoiseModEvent> *)g_messaging->GetEventDispatcher(SKSEMessagingInterface::kDispatcher_ModEvent);
-		if(!d) return;
-		PoiseModEvent evn("NahIDWin_InpaFix", "", 0.0f, NULL);
-		if(!SafeSend(d, &evn)) InterlockedIncrement(&g_faults);
-	}
 	void SendPerilousEvent(UInt32 id)
 	{
 		TESObjectREFR * ref = (TESObjectREFR *)ActorFromFormId(id);
@@ -2106,20 +2097,6 @@ namespace
 				{
 					g_parryReadyAt = now;
 					immune = true; parry = true;
-				}
-				// Inpa morto? Com o script a funcionar o control ja e 1 muito pouco depois do clique. 3 falhas seguidas -> reaplicar os feiticos (no maximo 1x por minuto).
-				{
-					const DWORD age = g_blockDownTick ? now - g_blockDownTick : 99999;
-					if(ctl > 0.5f && ctl < 1.5f) g_inpaMiss = 0;
-					else if(age >= 20 && age <= 120 && g_cfg.inpaAutoFix)
-					{
-						if(InterlockedIncrement(&g_inpaMiss) >= 3 && now - g_inpaFixTick > 60000)
-						{
-							g_inpaFixTick = now; g_inpaMiss = 0;
-							_MESSAGE("InpaFix: parry script silent (control=2 right after block press x3) -> asking the menu to re-apply the Inpa spells");
-							SendInpaFixEvent();
-						}
-					}
 				}
 			}
 		}
@@ -2881,7 +2858,19 @@ namespace
 				if(animLogged < 300 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14)
 				{
 					InterlockedIncrement(&animLogged);
-					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d t=%u)", evn->data, (int)g_ownNotify, (unsigned)GetTickCount());
+					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetTickCount());
+				}
+			}
+			// Dupla reacao do parry: o jogo gera o seu blockHitStart (thread principal) e o Inpa manda outro (Papyrus). Com a janela do parry aberta
+			// engolimos so o do jogo; o do Inpa (outra thread) passa sempre, porque o script do Inpa precisa dele.
+			if(!g_ownNotify && g_cfg.inpaMode && g_cfg.swallowGameReaction && evn && evn->data && _stricmp(evn->data, "blockHitStart") == 0
+				&& GetCurrentThreadId() == g_mainTid && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14)
+			{
+				const float c = InpaControlValue();
+				if(c > 0.5f && c < 1.5f)
+				{
+					if(InterlockedIncrement(&g_swallowed) <= 20) _MESSAGE("parry: swallowed the game's own blockHitStart (Inpa's one will play)");
+					return true;
 				}
 			}
 			if(!g_ownNotify && g_cfg.enabled && g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0 && evn && IsExhaustBlockedName(evn->data))
@@ -3931,6 +3920,7 @@ bool SKSEPlugin_Query(const SKSEInterface * skse, PluginInfo * info)
 
 bool SKSEPlugin_Load(const SKSEInterface * skse)
 {
+	g_mainTid = GetCurrentThreadId();
 	ResolveIniPath();
 	LoadConfig();
 
