@@ -8,6 +8,8 @@ Conteudo do ESP (mestre: Skyrim.esm):
   0x803  NahIDWin_Stagger3        feitico de stagger forte   (magnitude 1.00)
   0x804  NahIDWin_BridgeQuest     quest "Start Game Enabled" com o script NahIDWinBridge
   0x805  NahIDWin_MCMQuest
+  0x900  NahIDWin_FHISParryState  global usada pelas condicoes OAR Parry do FHIS
+  0x901  NahIDWin_FHISFollowUpState global usada pelas condicoes OAR FollowUp do FHIS
   0x810  EXPL faiscas do parry; 0x811..0x815 SOUN (escudo, punhos, adaga, contundente, geral); 0x821..0x825 SNDR (copiados do Inpa Sekiro Combat LE)        quest "Start Game Enabled" com o script NahIDWinMCM (menu SkyUI)
 
 Uso:  python3 tools/make_esp.py        (escreve em dist/Data/)
@@ -44,6 +46,20 @@ MGEF_DATA = bytes.fromhex(
 assert len(MGEF_DATA) == 152
 
 ID_MGEF, ID_S1, ID_S2, ID_S3, ID_QUST, ID_QUST2 = (OWN | 0x800, OWN | 0x801, OWN | 0x802, OWN | 0x803, OWN | 0x804, OWN | 0x805)
+ID_FHIS_PARRY, ID_FHIS_FOLLOWUP = OWN | 0x900, OWN | 0x901
+
+def glob(form_id, edid, value=0.0):
+    # GLOB: FNAM 'f' = float, FLTV = valor inicial.
+    return rec('GLOB', form_id, [
+        sub('EDID', z(edid)),
+        sub('FNAM', b'f'),
+        sub('FLTV', struct.pack('<f', value)),
+    ])
+
+globals_fhis = [
+    glob(ID_FHIS_PARRY, 'NahIDWin_FHISParryState'),
+    glob(ID_FHIS_FOLLOWUP, 'NahIDWin_FHISFollowUpState'),
+]
 
 mgef = rec('MGEF', ID_MGEF, [
     sub('EDID', z('NahIDWin_StaggerEffect')),
@@ -107,17 +123,17 @@ SNDR_PARRY = [
     bytes.fromhex('534e44521e0100000000000025080001000000002b000000454449441c007a7a7a53656b69726f5f70617272795f737563636573735f73667800434e414d04000a54ef1e474e414d0400a1720100414e414d2c00646174615c536f756e645c66785c696e70615f73656b69726f5c506572666563745061727279312e77617600414e414d2c00646174615c536f756e645c66785c696e70615f73656b69726f5c506572666563745061727279322e77617600414e414d2c00646174615c536f756e645c66785c696e70615f73656b69726f5c506572666563745061727279332e77617600414e414d2c00646174615c536f756e645c66785c696e70615f73656b69726f5c506572666563745061727279342e776176004f4e414d04004b320e004c4e414d040000000000424e414d0600000a01021103'),
 ]
 
-n_records = 1 + len(spels) + 1 + 1 + len(SOUN_PARRY) + len(SNDR_PARRY)
-n_total = n_records + 6          # + os 6 grupos (o jogo conta grupos)
+n_records = 1 + len(spels) + 1 + 1 + len(SOUN_PARRY) + len(SNDR_PARRY) + len(globals_fhis)
+n_total = n_records + 7          # + os 7 grupos (o jogo conta grupos)
 tes4 = rec('TES4', 0, [
-    sub('HEDR', struct.pack('<fII', 1.7, n_total, 0x900)),
+    sub('HEDR', struct.pack('<fII', 1.7, n_total, 0x902)),
     sub('CNAM', z('NahIDWin')),
     sub('MAST', z('Skyrim.esm')),
     sub('DATA', struct.pack('<Q', 0)),
     sub('INTV', struct.pack('<I', 1)),
 ])
 
-esp = tes4 + grup('MGEF', [mgef]) + grup('SPEL', spels) + grup('QUST', [qust]) + grup('EXPL', [EXPL_PARRY]) + grup('SOUN', SOUN_PARRY) + grup('SNDR', SNDR_PARRY)
+esp = tes4 + grup('MGEF', [mgef]) + grup('SPEL', spels) + grup('QUST', [qust]) + grup('EXPL', [EXPL_PARRY]) + grup('SOUN', SOUN_PARRY) + grup('SNDR', SNDR_PARRY) + grup('GLOB', globals_fhis)
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'dist', 'Data')
 os.makedirs(os.path.join(root, 'SEQ'), exist_ok=True)
