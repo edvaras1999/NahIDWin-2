@@ -203,7 +203,8 @@ Function UpdateFhisAnimationState()
 EndFunction
 
 Function OnAnimationAttackForFhis(string eventName)
-	if eventName == "attackPowerStartInPlace" || eventName == "attackPowerStartForward" || eventName == "attackPowerStartBackward" || eventName == "attackPowerStartLeft" || eventName == "attackPowerStartRight" || eventName == "attackPowerStartDualWield" || eventName == "attackPowerStartForwardLeftHand"
+	if fhisParryArmed && (eventName == "weaponSwing" || eventName == "weaponLeftSwing" || eventName == "attackPowerStartInPlace" || eventName == "attackPowerStartForward" || eventName == "attackPowerStartBackward" || eventName == "attackPowerStartLeft" || eventName == "attackPowerStartRight" || eventName == "attackPowerStartDualWield" || eventName == "attackPowerStartForwardLeftHand")
+		NahIDWinNative.Log("FHIS bridge: attack event " + eventName + " received during Parry window")
 		AdvanceFhisAnimationState()
 	endif
 EndFunction
