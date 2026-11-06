@@ -15,6 +15,7 @@ Spell sp3
 
 Event OnInit()
 	RegisterForModEvent("NahIDWin_Stagger", "OnNahStagger")
+	RegisterForModEvent("NahIDWin_Parry", "OnNahParry")
 	RegisterForModEvent("NahIDWin_Load", "OnNahLoad")
 	RegisterForModEvent("NahIDWin_Combatant", "OnNahCombatant")
 	RegisterForModEvent("NahIDWin_Rage", "OnNahRage")
@@ -34,6 +35,7 @@ EndEvent
 Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	; saves antigos nao tem os registos novos (OnInit so corre em jogos novos): registamos sempre
 	RegisterForModEvent("NahIDWin_Stagger", "OnNahStagger")
+	RegisterForModEvent("NahIDWin_Parry", "OnNahParry")
 	RegisterForModEvent("NahIDWin_Combatant", "OnNahCombatant")
 	RegisterForModEvent("NahIDWin_Rage", "OnNahRage")
 	RegisterForModEvent("NahIDWin_Life", "OnNahLife")
@@ -113,6 +115,7 @@ float sNoStaggerEnd = 0.0
 
 ; Ciclo curto: regeneracao de estamina conforme o combate e fim da imunidade ao stagger.
 Event OnUpdate()
+	UpdateFhisAnimationState()
 	if sNoStagger && Utility.GetCurrentRealTime() >= sNoStaggerEnd
 		Game.GetPlayer().SetAnimationVariableBool("bNoStagger", false)
 		sNoStagger = false
@@ -125,6 +128,86 @@ Event OnUpdate()
 		RegisterForSingleUpdate(2.5)
 	endif
 EndEvent
+
+; Compatibilidade FHIS: as condicoes OAR sao redirecionadas para globais do NahIDWin.esp.
+; O primeiro ataque depois de um parry usa a animacao Parry; a janela seguinte seleciona FollowUp.
+bool fhisParryArmed = false
+float fhisParryUntil = 0.0
+float fhisFollowUpUntil = 0.0
+
+Function OnNahParry(string eventName, string strArg, float numArg, Form sender)
+	GlobalVariable parryState = None
+	GlobalVariable followUpState = None
+	if (sender as Actor) != Game.GetPlayer() || NahIDWinNative.IniGetF("FHIS", "Enabled", 1.0) < 0.5
+		return
+	endif
+	parryState = Game.GetFormFromFile(0x900, "NahIDWin.esp") as GlobalVariable
+	followUpState = Game.GetFormFromFile(0x901, "NahIDWin.esp") as GlobalVariable
+	if !parryState || !followUpState
+		NahIDWinNative.Log("FHIS bridge: NahIDWin globals 900/901 unavailable; regenerate NahIDWin.esp from make_esp.py")
+		return
+	endif
+	parryState.SetValue(1.0)
+	followUpState.SetValue(0.0)
+	fhisParryArmed = true
+	fhisParryUntil = Utility.GetCurrentRealTime() + NahIDWinNative.IniGetF("FHIS", "ParryWindowSeconds", 1.25)
+	fhisFollowUpUntil = 0.0
+	RegisterForSingleUpdate(0.25)
+	NahIDWinNative.Log("FHIS bridge: parry state armed")
+EndFunction
+
+Function AdvanceFhisAnimationState()
+	GlobalVariable parryState = None
+	GlobalVariable followUpState = None
+	if !fhisParryArmed || Utility.GetCurrentRealTime() > fhisParryUntil
+		return
+	endif
+	parryState = Game.GetFormFromFile(0x900, "NahIDWin.esp") as GlobalVariable
+	followUpState = Game.GetFormFromFile(0x901, "NahIDWin.esp") as GlobalVariable
+	if !parryState || !followUpState
+		fhisParryArmed = false
+		return
+	endif
+	; Este evento de ataque ja iniciou com Parry ativo; agora abre a janela do proximo FollowUp.
+	parryState.SetValue(0.0)
+	followUpState.SetValue(5.0)
+	fhisParryArmed = false
+	fhisFollowUpUntil = Utility.GetCurrentRealTime() + NahIDWinNative.IniGetF("FHIS", "FollowUpWindowSeconds", 2.5)
+	NahIDWinNative.Log("FHIS bridge: first attack consumed parry state; FollowUp state armed")
+EndFunction
+
+Function UpdateFhisAnimationState()
+	float now = Utility.GetCurrentRealTime()
+	GlobalVariable parryState = None
+	GlobalVariable followUpState = None
+	if fhisParryArmed && now >= fhisParryUntil
+		parryState = Game.GetFormFromFile(0x900, "NahIDWin.esp") as GlobalVariable
+		followUpState = Game.GetFormFromFile(0x901, "NahIDWin.esp") as GlobalVariable
+		if parryState
+			parryState.SetValue(0.0)
+		endif
+		if followUpState
+			followUpState.SetValue(0.0)
+		endif
+		fhisParryArmed = false
+		NahIDWinNative.Log("FHIS bridge: unused parry state expired")
+	endif
+	if fhisFollowUpUntil > 0.0 && now >= fhisFollowUpUntil
+		followUpState = Game.GetFormFromFile(0x901, "NahIDWin.esp") as GlobalVariable
+		if followUpState
+			followUpState.SetValue(0.0)
+		endif
+		fhisFollowUpUntil = 0.0
+		NahIDWinNative.Log("FHIS bridge: FollowUp state expired")
+	endif
+EndFunction
+
+Function OnAnimationAttackForFhis(string eventName)
+	if fhisParryArmed && (eventName == "weaponSwing" || eventName == "weaponLeftSwing" || eventName == "attackPowerStartInPlace" || eventName == "attackPowerStartForward" || eventName == "attackPowerStartBackward" || eventName == "attackPowerStartLeft" || eventName == "attackPowerStartRight" || eventName == "attackPowerStartDualWield" || eventName == "attackPowerStartForwardLeftHand")
+		NahIDWinNative.Log("FHIS bridge: attack event " + eventName + " received during Parry window")
+		AdvanceFhisAnimationState()
+	endif
+EndFunction
 
 ; ---------------- vidas extra do jogador ----------------
 int livesUsed = 0
@@ -448,6 +531,7 @@ EndFunction
 ; Cada golpe do jogador gasta estamina (mesmo sem acertar). O custo depende da arma, do tipo de golpe e da armadura.
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	Actor pl = Game.GetPlayer()
+	OnAnimationAttackForFhis(asEventName)
 	if asEventName == "recoilStop" || asEventName == "staggerStop" || asEventName == "ragdollEnd" || asEventName == "GetUpStart" || asEventName == "GetUpEnd"
 		NahIDWinNative.Log("PLAYER ANIM: " + asEventName)
 		return
