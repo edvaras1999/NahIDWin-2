@@ -195,3 +195,7 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - Modo Inpa: a DLL volta a so ler `zzzSekiro_control` (como na 0.16.0). Deixou de escrever nele.
 - Removido o filtro do duplo `blockHitStart` (v0.18.1): engolia o evento que o script do Inpa usa para disparar o som e os efeitos do parry.
 - O parry da DLL (janela de 300 ms desde o clique) fica so para quando o Inpa nao esta ativo (`[Inpa] Mode=0`).
+
+## v0.20.3 - auto-reparacao do parry do Inpa
+- Log 0.20.2: em 19 golpes bloqueados, o `control` do Inpa ficou sempre a 2 (mesmo 31 ms depois do clique) e nao houve nenhum `blockHitStart`: o script de parry do Inpa nao estava a correr (a latencia do Papyrus era baixa, 31 ms).
+- O menu reaplica os feiticos do Inpa 4 s depois de carregar (`[Inpa] RefreshOnLoad=1`) e quando a DLL detecta 3 falhas seguidas (`[Inpa] AutoFix=1`, 1x por minuto). E o mesmo que desligar e ligar o MOD no menu.

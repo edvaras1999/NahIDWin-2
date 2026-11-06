@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.20.2 (parry do Inpa como na 0.16.0; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.20.3 (parry do Inpa como na 0.16.0 + auto-reparacao; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -207,6 +207,7 @@ namespace
 		float	regenCombatPct;			// % da regeneracao normal em combate
 		int		regenDelayMs;			// sem regenerar durante este tempo depois de um golpe
 		float	regenBlockFactor;		// multiplicador enquanto segura o bloqueio
+		int		inpaAutoFix;			// reaplica os feiticos do Inpa quando o script de parry dele nao responde
 		int		parryNativeInpa;		// 1 = a DLL decide o parry pelo tempo desde que se carrega no bloqueio (nao depende do Papyrus do Inpa)
 
 		// empurrao no stagger pesado (so em condicoes especificas)
@@ -439,6 +440,7 @@ namespace
 		c.regenDelayMs		= IniI("Stamina", "CombatRegenDelayMs", 600);
 		c.regenBlockFactor	= IniF("Stamina", "CombatRegenBlockFactor", 0.4f);
 		c.parryNativeInpa	= IniI("Parry", "NativeInpa", 1);
+		c.inpaAutoFix		= IniI("Inpa", "AutoFix", 1);
 
 		c.kbEnabled			= IniI("Knockback", "Enabled", 1);
 		c.kbForce			= IniF("Knockback", "Force", 1.0f);
@@ -1848,6 +1850,17 @@ namespace
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER) { return -1; }
 	}
+	// O script de parry do Inpa nao responde (control continua a 2 mesmo logo a seguir ao clique): pede ao menu para reaplicar os feiticos do Inpa.
+	volatile LONG g_inpaMiss = 0;
+	volatile DWORD g_inpaFixTick = 0;
+	void SendInpaFixEvent()
+	{
+		EventDispatcher<PoiseModEvent> * d = NULL;
+		if(g_messaging) d = (EventDispatcher<PoiseModEvent> *)g_messaging->GetEventDispatcher(SKSEMessagingInterface::kDispatcher_ModEvent);
+		if(!d) return;
+		PoiseModEvent evn("NahIDWin_InpaFix", "", 0.0f, NULL);
+		if(!SafeSend(d, &evn)) InterlockedIncrement(&g_faults);
+	}
 	void SendPerilousEvent(UInt32 id)
 	{
 		TESObjectREFR * ref = (TESObjectREFR *)ActorFromFormId(id);
@@ -2093,6 +2106,20 @@ namespace
 				{
 					g_parryReadyAt = now;
 					immune = true; parry = true;
+				}
+				// Inpa morto? Com o script a funcionar o control ja e 1 muito pouco depois do clique. 3 falhas seguidas -> reaplicar os feiticos (no maximo 1x por minuto).
+				{
+					const DWORD age = g_blockDownTick ? now - g_blockDownTick : 99999;
+					if(ctl > 0.5f && ctl < 1.5f) g_inpaMiss = 0;
+					else if(age >= 20 && age <= 120 && g_cfg.inpaAutoFix)
+					{
+						if(InterlockedIncrement(&g_inpaMiss) >= 3 && now - g_inpaFixTick > 60000)
+						{
+							g_inpaFixTick = now; g_inpaMiss = 0;
+							_MESSAGE("InpaFix: parry script silent (control=2 right after block press x3) -> asking the menu to re-apply the Inpa spells");
+							SendInpaFixEvent();
+						}
+					}
 				}
 			}
 		}
