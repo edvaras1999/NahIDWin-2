@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.20.3 (parry do Inpa como na 0.16.0 + auto-reparacao; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.20.4 (FHIS parry and FollowUp bridge)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -1464,6 +1464,18 @@ namespace
 		else { InterlockedIncrement(&g_faults); _MESSAGE("stagger: sending the mod event FAILED (caught)"); }
 	}
 
+	// Parry confirmado no jogador. Separado do evento de FX para que patches de animacao
+	// (como as condicoes OAR do FHIS) funcionem mesmo quando os FX do NahIDWin estao desligados.
+	void SendPlayerParryEvent(TESObjectREFR * victim)
+	{
+		if(!victim) return;
+		EventDispatcher<PoiseModEvent> * d = NULL;
+		if(g_messaging) d = (EventDispatcher<PoiseModEvent> *)g_messaging->GetEventDispatcher(SKSEMessagingInterface::kDispatcher_ModEvent);
+		if(!d) return;
+		PoiseModEvent evn("NahIDWin_Parry", "", 0.0f, (TESForm *)victim);
+		if(!SafeSend(d, &evn)) _MESSAGE("parry: animation compatibility event failed");
+	}
+
 	// Combatentes que ja receberam os feitiços do Inpa (substitui o "cloak" dele e a distribuicao geral por SPID):
 	// so quem entra em combate leva os scripts. O script ponte da os feitiços ao receber o evento.
 	std::set<UInt32> g_combatants;
@@ -2140,6 +2152,7 @@ namespace
 			// um golpe conta um parry so (o mesmo atacante nao repete em 300 ms)
 			if(h.attackerId == g_parryAtkId && now - g_parryAtkTick < 300) parry = false;
 			else { g_parryAtkId = h.attackerId; g_parryAtkTick = now; }
+			if(parry && h.victim.isPlayer) SendPlayerParryEvent(h.victimRef);
 			if(parry && h.sourceKind == 2 && g_cfg.deflectEnabled)
 			{
 				g_deflectOn = 1; g_deflectStart = now;
