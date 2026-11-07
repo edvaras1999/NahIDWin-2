@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.24.0 (menu with presets, non-blocking exhaustion, parry stamina cap)"
+#define PLUGIN_VERSION_STR	"0.24.1 (menu with presets, non-blocking exhaustion, parry stamina cap, new-game init fix)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;

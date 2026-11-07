@@ -28,7 +28,21 @@ Event OnInit()
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
 	NahIDWinNative.ScriptReady()
+	; New game: the DLL's load message can arrive before this script exists, so the load setup runs from OnUpdate (two passes).
+	sInitStage = 0
+	sInitAt = Utility.GetCurrentRealTime() + 6.0
 EndEvent
+
+int sInitStage = 2
+float sInitAt = 0.0
+
+; Same setup as OnNahLoad but without blocking waits.
+Function LateInit()
+	RegisterInputs()
+	ZeroVanillaCosts()
+	Game.SetGameSettingFloat("fCombatBlockChanceMin", NahIDWinNative.IniGetF("NpcBlock", "ChanceMin", 0.3))
+	NahIDWinNative.Log("bridge 0.24.1: late init pass " + sInitStage)
+EndFunction
 
 ; A DLL avisa quando um save e carregado: os registos de animacao perdem-se, entao registamos de novo.
 Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
@@ -63,9 +77,10 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 		NahIDWinNative.Log("speed repaired " + curSp + " -> " + baseSp)
 	endif
 	lastRegen = -1.0
+	sInitStage = 2
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.24.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.24.1: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -149,6 +164,11 @@ Event OnUpdate()
 	if sNoStagger && Utility.GetCurrentRealTime() >= sNoStaggerEnd
 		Game.GetPlayer().SetAnimationVariableBool("bNoStagger", false)
 		sNoStagger = false
+	endif
+	if sInitStage < 2 && Utility.GetCurrentRealTime() >= sInitAt
+		sInitStage += 1
+		sInitAt = Utility.GetCurrentRealTime() + 40.0
+		LateInit()
 	endif
 	CheckExhaust()
 	ApplyRegen()
