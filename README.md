@@ -232,3 +232,6 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - **Exaustao dinamica**: minimo `Seconds` (2 s), depois ate 40% de estamina ou 8 s; regeneracao x0,6 durante ela.
 - `HitCostNPC` passa a 0 (substituido pela cobranca por balanco).
 - **Guarda dos NPC**: atraso do bloqueio 400 ms (`BlockStartDelayMs`); o NPC nao bloqueia durante a animacao de ataque nem 300 ms depois (`AttackRecoverMs`): esses golpes contam como sem bloqueio para poise, postura e stagger.
+
+## v0.23.1
+- **Golpe forte da estamina**: os `attackPowerStart*` sao entradas do grafo e o Papyrus nunca as via (todos os golpes custavam como normais). O gancho de eventos passa a detetá-los no jogador e nos NPC (log `power attack input: nome on id`): o golpe forte do jogador custa x`PowerMult`, e o NPC paga o extra logo ao iniciar o ataque.

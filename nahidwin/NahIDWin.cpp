@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.23.0 (estamina: custo por peso, bloqueio gasta estamina, guarda partida, exaustao dinamica, ligacao com poise; guarda dos NPC)"
+#define PLUGIN_VERSION_STR	"0.23.1 (estamina: golpe forte detetado pelo gancho; custo por peso, bloqueio gasta estamina, guarda partida, exaustao dinamica; guarda dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -740,6 +740,9 @@ namespace
 	StateMap	g_states;
 
 	// contadores e estatisticas (diagnostico)
+	volatile DWORD	g_powerIntent = 0;		// o jogo mandou um "attackPowerStart*" ao jogador (golpe forte a comecar)
+	struct NpcPower { DWORD seen, paid; };
+	std::map<UInt32, NpcPower> g_npcPower;
 	volatile DWORD	g_powerUntil = 0;		// um golpe forte esta a comecar (o balanco seguinte nao paga duas vezes)
 
 
@@ -2359,7 +2362,16 @@ namespace
 			CacheNpcWeapon(h.attackerId, h.weaponWeight, h.weaponType);
 			// golpe forte do NPC: o custo extra (o balanco normal ja foi pago ao iniciar o ataque)
 			if(g_cfg.stamEnabled && g_cfg.npcSwingCharge && (h.flags & TESHitEvent::kFlag_PowerAttack) && h.attackerActor && g_cfg.powerMult2 > 1.0f)
-				NpcSwingCharge(h.attackerActor, h.attackerId, now, g_cfg.powerMult2 - 1.0f);
+			{
+				bool paid = false;
+				Lock();
+				{
+					std::map<UInt32, NpcPower>::iterator pw = g_npcPower.find(h.attackerId);
+					if(pw != g_npcPower.end() && pw->second.paid && now - pw->second.paid < 2500) paid = true;
+				}
+				Unlock();
+				if(!paid) NpcSwingCharge(h.attackerActor, h.attackerId, now, g_cfg.powerMult2 - 1.0f);
+			}
 		}
 
 		const float mx = ComputeMax(h.victim);
@@ -3234,6 +3246,22 @@ namespace
 					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d tid=%u t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetCurrentThreadId(), (unsigned)GetTickCount());
 				}
 			}
+			// golpe forte: os "attackPowerStart*" sao ENTRADAS do grafo (o Papyrus nao as ve); o gancho ve-as no jogador e nos NPC
+			if(evn && evn->data && (_strnicmp(evn->data, "attackPowerStart", 16) == 0 || _strnicmp(evn->data, "bashPowerStart", 14) == 0) && holder)
+			{
+				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
+				const DWORD pnow = GetTickCount();
+				static volatile LONG powLogged = 0;
+				if(g_cfg.diag && powLogged < 40) { InterlockedIncrement(&powLogged); _MESSAGE("power attack input: %s on %08X", evn->data, pid); }
+				if(pid == 0x14) g_powerIntent = pnow;
+				else if(pid != 0)
+				{
+					Lock();
+					if(g_npcPower.size() > 600) g_npcPower.clear();
+					g_npcPower[pid].seen = pnow;
+					Unlock();
+				}
+			}
 			// Dupla reacao do parry: o jogo gera o seu blockHitStart (thread principal) e o Inpa manda outro (Papyrus). Com a janela do parry aberta
 			// engolimos so o do jogo; o do Inpa (outra thread) passa sempre, porque o script do Inpa precisa dele.
 			if(!g_ownNotify && g_cfg.inpaMode && g_cfg.swallowGameReaction && evn && evn->data && _stricmp(evn->data, "blockHitStart") == 0
@@ -3563,7 +3591,17 @@ namespace
 			if(start && charge)
 			{
 				Actor * a = ActorFromFormId(ids[i]);
-				if(a) NpcSwingCharge(a, ids[i], now, 1.0f);
+				if(a)
+				{
+					float mult = 1.0f;
+					Lock();
+					{
+						std::map<UInt32, NpcPower>::iterator pw = g_npcPower.find(ids[i]);
+						if(pw != g_npcPower.end() && pw->second.seen && now - pw->second.seen < 1500) { mult = g_cfg.powerMult2; pw->second.paid = now; pw->second.seen = 0; }
+					}
+					Unlock();
+					NpcSwingCharge(a, ids[i], now, mult);
+				}
 			}
 		}
 	}
@@ -3838,6 +3876,7 @@ namespace
 		if(!g_cfg.stamEnabled || g_cfg.swingCostPlayer <= 0.0f) return 0.0f;
 		if(g_cfg.rageEnabled && g_cfg.rageZeroStamina && PlayerRaging()) return 0.0f;	// furia: golpes gratis
 		const DWORD now = GetTickCount();
+		if(mode == 0 && g_powerIntent && now - g_powerIntent < 1500) { mode = 1; g_powerIntent = 0; }	// golpe forte visto pelo gancho
 		if(mode == 0 && now < g_powerUntil) return 0.0f;	// o golpe forte ja pagou
 		int ty = rightType;
 		if(ty < 0 || ty > 12) ty = 1;
