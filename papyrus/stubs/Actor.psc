@@ -4,6 +4,8 @@ bool Function IsDead() native
 Function PushActorAway(Actor akActorToPush, float aiKnockbackForce) native
 int Function GetEquippedItemType(int aiHand) native
 Form Function GetWornForm(int aiSlotMask) native
+float Function GetActorValueMax(string asValueName) native
+Form Function GetEquippedObject(int aiSlot) native
 float Function GetActorValue(string asValueName) native
 Function SetActorValue(string asValueName, float afValue) native
 Function DamageActorValue(string asValueName, float afDamage) native

@@ -15,7 +15,11 @@ Function BleedDone(int packed) global native
 
 ; Custo de estamina de um golpe do jogador (0 = desligado ou ja pago). mode: 0 balanco, 1 golpe forte, 2 escudo.
 ; rightType: codigo de GetEquippedItemType. A DLL junta o tipo de arma e a armadura. Forca do empurrao (0 = desligado).
-float Function GetSwingCost(int mode, int rightType) global native
+float Function GetSwingCost(int mode, int rightType, float weight) global native
+; Exaustao dinamica: tempo maximo (s) e estamina alvo (% do maximo) para sair dela
+float Function GetExhaustMax() global native
+float Function GetExhaustTarget() global native
+Function ExhaustEnded() global native
 float Function GetKnockbackForce() global native
 
 ; Armadura abranda a regeneracao de estamina: percentagem (100 = normal). Devolve -1 se estiver desligado (nao mexer).

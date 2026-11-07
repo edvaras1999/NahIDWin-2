@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.22.2 (resistencia a 1 classe acima; escalao pelo poise antes do golpe; log do peso vestido)"
+#define PLUGIN_VERSION_STR	"0.23.0 (estamina: custo por peso, bloqueio gasta estamina, guarda partida, exaustao dinamica, ligacao com poise; guarda dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -169,6 +169,12 @@ namespace
 		float	tierMid, tierLow, postureTierHigh, postureTierMid, postureTierLow;
 		float	lockSecondsNpc, lockSecondsPlayer, lockPostureMult, severePostureMult;
 		int		magicClass;
+		int		attackRecoverMs;
+		// v0.23 estamina
+		int		newCost, npcSwingCharge, zeroVanilla, classRegen;
+		float	swingBase, swingPerWeight, powerMult2, bashMult2, blockStamFactor, blockStamShield, guardBreakPosture;
+		float	lowStamZone, lowStamRegen, lowStamPoise, poiseRegenMid, poiseRegenLow, classRegenPenalty;
+		float	exhaustMaxSeconds, exhaustTargetPct, exhaustRegenFactor, npcSwingRange;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
 		// deflect continuo
@@ -402,12 +408,34 @@ namespace
 		c.creatureMidMass = IniF("Classes", "CreatureMediumMass", 0.9f);
 		c.creatureHeavyMass = IniF("Classes", "CreatureHeavyMass", 1.5f);
 		c.magicClass	= IniI("Classes", "MagicClass", 2);
+		c.newCost		= IniI("Stamina", "WeightCost", 1);
+		c.swingBase		= IniF("Stamina", "SwingBase", 6.0f);
+		c.swingPerWeight = IniF("Stamina", "SwingPerWeight", 0.9f);
+		c.powerMult2	= IniF("Stamina", "PowerMult", 2.2f);
+		c.bashMult2		= IniF("Stamina", "BashWeightMult", 1.5f);
+		c.npcSwingCharge = IniI("Stamina", "NpcSwingCharge", 1);
+		c.npcSwingRange	= IniF("Stamina", "NpcSwingRange", 3000.0f);
+		c.zeroVanilla	= IniI("Stamina", "ZeroVanillaCosts", 1);
+		c.blockStamFactor = IniF("Stamina", "BlockCostFactor", 0.35f);
+		c.blockStamShield = IniF("Stamina", "BlockCostShieldMult", 0.6f);
+		c.guardBreakPosture = IniF("Stamina", "GuardBreakPosturePercent", 25.0f);
+		c.lowStamZone	= IniF("Stamina", "LowZoneFraction", 0.25f);
+		c.lowStamRegen	= IniF("Stamina", "LowZoneRegenMult", 0.6f);
+		c.lowStamPoise	= IniF("Stamina", "LowZonePoiseDamageMult", 1.25f);
+		c.poiseRegenMid	= IniF("Stamina", "PoiseMidRegenMult", 0.75f);
+		c.poiseRegenLow	= IniF("Stamina", "PoiseLowRegenMult", 0.5f);
+		c.classRegen	= IniI("Stamina", "ClassRegen", 1);
+		c.classRegenPenalty = IniF("Stamina", "ClassRegenPenalty", 0.10f);
+		c.exhaustMaxSeconds = IniF("Exhaustion", "MaxSeconds", 8.0f);
+		c.exhaustTargetPct = IniF("Exhaustion", "TargetPercent", 40.0f);
+		c.exhaustRegenFactor = IniF("Exhaustion", "RegenFactor", 0.6f);
 		c.wornWeightMid	= IniF("Classes", "WornWeightMid", 8.0f);
 		c.wornWeightHeavy = IniF("Classes", "WornWeightHeavy", 28.0f);
 		c.suppressVanilla = IniI("Stagger", "SuppressVanilla", 1);
 		c.npcGuardRules	= IniI("NpcBlock", "GuardRules", 1);
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
-		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 250);
+		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 400);
+		c.attackRecoverMs = IniI("NpcBlock", "AttackRecoverMs", 300);
 		c.lockRepeatMs	= IniI("StaggerLock", "RepeatMs", 700);
 		c.lockRetryMs	= IniI("StaggerLock", "RetryMs", 150);
 		c.lockMaxRetries = IniI("StaggerLock", "MaxRetries", 3);
@@ -452,7 +480,7 @@ namespace
 
 		c.stamEnabled		= IniI("Stamina", "Enabled", 1);
 		c.swingCostPlayer	= IniF("Stamina", "SwingCostPlayer", 10.0f);
-		c.hitCostNpc		= IniF("Stamina", "HitCostNPC", 10.0f);
+		c.hitCostNpc		= IniF("Stamina", "HitCostNPC", 0.0f);
 		static const float typeMultDefault[13] = { 0.6f, 1.0f, 0.6f, 1.2f, 1.3f, 1.6f, 1.8f, 0.8f, 0.6f, 0.0f, 1.0f, 0.5f, 0.8f };
 		for(int i = 0; i < 13; i++)
 		{
@@ -508,7 +536,7 @@ namespace
 		if(c.inpaMode) c.parryNoDamage = 0;
 		c.parryCooldownMs	= IniI("Parry", "CooldownMs", 200);
 		c.parryRequireHeld	= IniI("Parry", "RequireHeld", 1);
-		c.parryDefStaminaRecover = IniF("Parry", "DefenderStaminaRecoverFraction", 0.25f);
+		c.parryDefStaminaRecover = IniF("Parry", "DefenderStaminaRecoverFraction", 0.30f);
 		c.parryAttackerStamina = IniF("Parry", "AttackerStaminaDrain", 20.0f);
 		c.parryFrontAngle	= IniI("Parry", "FrontAngleDegrees", 100);
 		c.blockDrain		= IniI("Block", "DrainEnabled", 1);
@@ -727,6 +755,7 @@ namespace
 	struct FleeSlot { int combat; DWORD lastLog; int seen; };
 	std::map<UInt32, FleeSlot> g_flee;
 	DWORD g_fleeTick = 0;
+	extern volatile DWORD g_exhaustBlockUntil;
 	volatile LONG	g_leftType = 0;			// tipo do item da mao esquerda (Papyrus GetEquippedItemType: 10 = escudo)
 	volatile LONG	g_deflectOn = 0;		// parry numa magia: enquanto segurar o bloqueio, a magia e devolvida
 	volatile DWORD	g_deflectStart = 0;
@@ -1961,6 +1990,72 @@ namespace
 	}
 
 	// O poise/postura deste ator esta em exaustao (leva mais dano)?
+	// ---- v0.23: custos de estamina ----
+	struct NpcWeapon { float w; int t; };
+	std::map<UInt32, NpcWeapon> g_npcWeapon;
+	void CacheNpcWeapon(UInt32 id, float w, int t)
+	{
+		Lock();
+		if(g_npcWeapon.size() > 600) g_npcWeapon.clear();
+		NpcWeapon & n = g_npcWeapon[id]; n.w = w; n.t = t;
+		Unlock();
+	}
+	float WeightCost(float weight)
+	{
+		return g_cfg.swingBase + (weight > 0.0f ? weight : 0.0f) * g_cfg.swingPerWeight;
+	}
+	void NpcExhaustNow(Actor * a, UInt32 id, DWORD now);
+	void NpcSwingCharge(Actor * a, UInt32 id, DWORD now, float mult);
+	// Estamina gasta ao bloquear: dano x fator x diferenca de classe contra a ARMADURA (nao contra o bloqueio). Guarda partida se nao chega.
+	void BlockStamina(Actor * va, const HitInfo & h, float dmg, int atkCls, bool heavyAtk, DWORD now)
+	{
+		const int armorCls = ArmorClass(h.victim.armor, h.victim.isPlayer);
+		int diff = atkCls - armorCls;
+		if(diff > 0 && !heavyAtk) diff--;
+		float cost = dmg * g_cfg.blockStamFactor * powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)diff);
+		if(h.victim.isPlayer && g_leftType == 10) cost *= g_cfg.blockStamShield;
+		if(!(cost > 0.0f)) return;
+		float c = 0.0f, m = 0.0f;
+		if(!ReadAV(va, 26, &c, &m) || m <= 0.0f) return;
+		const float floorV = (!h.victim.isPlayer && g_cfg.npcStamFloorPct > 0.0f) ? m * g_cfg.npcStamFloorPct / 100.0f : 0.0f;
+		float avail = c - floorV;
+		if(avail < 0.0f) avail = 0.0f;
+		const bool broke = cost >= avail;
+		const float take = broke ? avail : cost;
+		if(take > 0.0f) RestoreAV(va, 26, -take);
+		static volatile LONG bl = 0;
+		if(g_cfg.diag && bl < 120) { InterlockedIncrement(&bl); _MESSAGE("block stamina: %08X lost %.1f (hit %.0f, class %d vs armor %d), stamina %.0f -> %.0f%s", h.victim.id, take, dmg, atkCls, armorCls, c, c - take, broke ? " -> GUARD BREAK" : ""); }
+		if(!broke) return;
+		bool ok = false;
+		DWORD lockEnd = 0;
+		const float mxV = ComputeMax(h.victim), mpV = ComputeMaxPosture(h.victim);
+		Lock();
+		{
+			PoiseState & st = FindOrCreate(h.victim.id, mxV, mpV, now);
+			Regen(st, now);
+			if(now >= st.bleedUntil && now >= st.rageUntil && now >= st.lockUntil)
+			{
+				st.cur = 0.0f;
+				lockEnd = now + (DWORD)((h.victim.isPlayer ? g_cfg.lockSecondsPlayer : g_cfg.lockSecondsNpc) * 1000.0f);
+				st.lockUntil = lockEnd;
+				st.lastHit = now; st.pLastHit = now;
+				if(g_cfg.postureEnabled)
+				{
+					st.pCur += st.pMax * g_cfg.guardBreakPosture / 100.0f;
+					if(st.pCur > st.pMax * 0.95f) st.pCur = st.pMax * 0.95f;
+				}
+				if(!h.victim.isPlayer) st.staggerUntil = now + (DWORD)g_cfg.staggerGuardMs;
+				ok = true;
+			}
+		}
+		Unlock();
+		if(!ok) return;
+		_MESSAGE("GUARD BREAK: %08X ran out of stamina while blocking -> poise 0, staggerlock", h.victim.id);
+		if(h.victim.isPlayer) { g_exhaustBlockUntil = lockEnd; }
+		const bool okS = NativeStagger((TESObjectREFR *)va);
+		AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
+		HudFlash((TESObjectREFR *)va);
+	}
 	bool ExhaustedId(UInt32 id, DWORD now)
 	{
 		bool r = false;
@@ -2259,12 +2354,24 @@ namespace
 		if(g_cfg.suppressVanilla || g_cfg.npcGuardRules) { EnsureNotifyHook(h.victimRef); if(h.attackerActor) EnsureNotifyHook((TESObjectREFR *)h.attackerActor); }
 		NoteCombatant(h.victimRef, h.victim.id);
 		if(h.attackerIsActor && h.attackerActor) NoteCombatant((TESObjectREFR *)h.attackerActor, h.attacker.id);
+		if(h.attackerIsActor && !h.attacker.isPlayer && h.sourceKind == 1)
+		{
+			CacheNpcWeapon(h.attackerId, h.weaponWeight, h.weaponType);
+			// golpe forte do NPC: o custo extra (o balanco normal ja foi pago ao iniciar o ataque)
+			if(g_cfg.stamEnabled && g_cfg.npcSwingCharge && (h.flags & TESHitEvent::kFlag_PowerAttack) && h.attackerActor && g_cfg.powerMult2 > 1.0f)
+				NpcSwingCharge(h.attackerActor, h.attackerId, now, g_cfg.powerMult2 - 1.0f);
+		}
 
 		const float mx = ComputeMax(h.victim);
 		const float mp = ComputeMaxPosture(h.victim);
 		float dmg = PoiseDamage(h);	// dano "cheio" (sem bloqueio)
 		if(dotSustained) dmg *= g_cfg.magicDotMult;
 		if(g_cfg.exhaustDmgMult > 1.0f && ExhaustedId(h.victim.id, now)) dmg *= g_cfg.exhaustDmgMult;
+		else if(g_cfg.lowStamPoise > 1.0f && g_cfg.stamEnabled && h.victimRef)
+		{
+			float sc = 0.0f, sm = 0.0f;
+			if(ReadAV((Actor *)h.victimRef, 26, &sc, &sm) && sm > 0.0f && sc / sm < g_cfg.lowStamZone) dmg *= g_cfg.lowStamPoise;	// estamina baixa: poise mais fragil
+		}
 		const bool perilHit = h.victim.isPlayer && h.attackerIsActor && h.sourceKind != 2 && PerilousActive(h.attackerId, now);
 		if(perilHit) dmg *= g_cfg.perilDmgMult;
 		bool blocked = !perilHit && (h.flags & TESHitEvent::kFlag_Blocked) != 0;	// o ataque perigoso ignora o bloqueio
@@ -2483,6 +2590,10 @@ namespace
 				if(target > c) { RestoreAV((Actor *)h.victimRef, 26, target - c); _MESSAGE("EXHAUSTION (NPC) %08X: stamina %.0f -> %.0f of %.0f", h.victim.id, c, target, m); }
 			}
 		}
+
+		// v0.23: o bloqueio gasta estamina pelo dano absorvido; sem estamina a guarda parte (poise a 0 + staggerlock)
+		if(blocked && !parry && !immune && g_cfg.stamEnabled && h.sourceKind != 2 && h.victimRef && h.victim.alive)
+			BlockStamina((Actor *)h.victimRef, h, dmg, atkCls, heavyAtk, now);
 
 		if(doExec) SendExecuteEvent(h.victimRef, (g_cfg.execBigKill && h.victim.mass >= g_cfg.kbGiantMass) ? "big" : "");
 
@@ -3047,9 +3158,10 @@ namespace
 	struct BlockSeen { UInt32 id; DWORD tick; };
 	BlockSeen g_npcBlock[16];
 	volatile LONG g_vanillaBlocked = 0, g_guardBlocked = 0;
+	bool NpcAttackBusy(UInt32 id, DWORD now);
 	bool NpcNoGuard(UInt32 id, DWORD now)
 	{
-		bool r = false;
+		bool r = NpcAttackBusy(id, now);
 		Lock();
 		StateMap::iterator it = g_states.find(id);
 		if(it != g_states.end() && (now < it->second.lockUntil || now < it->second.bleedUntil || now < it->second.staggerUntil)) r = true;
@@ -3341,6 +3453,120 @@ namespace
 	}
 
 	Actor * ActorFromFormId(UInt32 id);
+	// ---- v0.23: o NPC paga estamina por cada balanco de arma (inicio da animacao de ataque) ----
+	std::map<UInt32, int> g_npcAtkPrev;
+	int ReadAttackState(UInt32 id)
+	{
+		__try
+		{
+			Actor * a = ActorFromFormId(id);
+			PlayerCharacter * pc = Engine::Player();
+			if(!a || !pc || id == 0x14 || (a->flags1 & Actor::kFlags_IsPlayerTeammate)) return -1;
+			if(Engine::LifeState(a) != 0) return -1;
+			const float dx = a->pos.x - pc->pos.x, dy = a->pos.y - pc->pos.y;
+			if(dx * dx + dy * dy > g_cfg.npcSwingRange * g_cfg.npcSwingRange) return -1;
+			return (int)((a->actorState.flags08 >> 28) & 0xF);
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { return -1; }
+	}
+	std::map<UInt32, DWORD> g_npcAtkEnd;
+	// o NPC esta a atacar (ou acabou ha pouco): nao pode bloquear
+	bool NpcAttackBusy(UInt32 id, DWORD now)
+	{
+		// usa so o estado guardado pelo TickNpcSwings (esta funcao tambem corre em outras threads: nada de ler o jogo aqui)
+		bool r = false;
+		Lock();
+		{
+			std::map<UInt32, int>::iterator ap = g_npcAtkPrev.find(id);
+			if(ap != g_npcAtkPrev.end() && ap->second == 1) r = true;
+			std::map<UInt32, DWORD>::iterator it = g_npcAtkEnd.find(id);
+			if(it != g_npcAtkEnd.end() && now - it->second < (DWORD)g_cfg.attackRecoverMs) r = true;
+		}
+		Unlock();
+		return r;
+	}
+	void NpcExhaustNow(Actor * a, UInt32 id, DWORD now)
+	{
+		if(!a || !g_cfg.exhaustEnabled || !g_cfg.exhaustNpc) return;
+		bool go = false;
+		ActorStats s;
+		if(!ReadActorStats(a, &s)) return;
+		Lock();
+		{
+			PoiseState & st = FindOrCreate(id, ComputeMax(s), ComputeMaxPosture(s), now);
+			if(now >= st.exhaustReadyAt && now >= st.bleedUntil && now >= st.rageUntil && now >= st.lockUntil)
+			{
+				st.exhaustReadyAt = now + (DWORD)(g_cfg.exhaustCooldown * 1000.0f);
+				st.exhaustUntil = now + (DWORD)(g_cfg.npcExhaustSeconds * 1000.0f);
+				go = true;
+			}
+		}
+		Unlock();
+		if(!go) return;
+		SendStaggerEvent((TESObjectREFR *)a, 0x14, 7);
+		float c = 0.0f, m = 0.0f;
+		if(g_cfg.npcExhaustRecoverPct > 0.0f && ReadAV(a, 26, &c, &m))
+		{
+			const float target = m * g_cfg.npcExhaustRecoverPct / 100.0f;
+			if(target > c) RestoreAV(a, 26, target - c);
+		}
+		_MESSAGE("EXHAUSTION (NPC) %08X: ran out of stamina swinging", id);
+	}
+	void NpcSwingCharge(Actor * a, UInt32 id, DWORD now, float mult)
+	{
+		float w = 10.0f; int t = 1;
+		Lock();
+		{
+			std::map<UInt32, NpcWeapon>::iterator it = g_npcWeapon.find(id);
+			if(it != g_npcWeapon.end()) { w = it->second.w; t = it->second.t; }
+		}
+		Unlock();
+		if(t < 0 || t > 12) t = 1;
+		float cost = WeightCost(w) * g_cfg.typeMult[t] * mult;
+		if(!(cost > 0.0f)) return;
+		float c = 0.0f, m = 0.0f;
+		if(!ReadAV(a, 26, &c, &m) || m <= 0.0f) return;
+		const float floorV = (g_cfg.npcStamFloorPct > 0.0f) ? m * g_cfg.npcStamFloorPct / 100.0f : 0.0f;
+		float avail = c - floorV;
+		if(avail < 0.0f) avail = 0.0f;
+		const float take = (cost < avail) ? cost : avail;
+		if(take > 0.0f) RestoreAV(a, 26, -take);
+		static volatile LONG nl = 0;
+		if(g_cfg.diag && nl < 80) { InterlockedIncrement(&nl); _MESSAGE("npc swing: %08X weapon %.1f type %d -> %.1f stamina (%.0f -> %.0f)", id, w, t, take, c, c - take); }
+		if(c - take <= 0.5f) NpcExhaustNow(a, id, now);
+	}
+	void TickNpcSwings(DWORD now)
+	{
+		static DWORD last = 0;
+		const bool charge = g_cfg.stamEnabled && g_cfg.npcSwingCharge;
+		if((!charge && !g_cfg.npcGuardRules) || now - last < 60) return;
+		last = now;
+		UInt32 ids[256]; int n = 0;
+		Lock();
+		for(std::set<UInt32>::iterator it = g_combatants.begin(); it != g_combatants.end() && n < 256; ++it) ids[n++] = *it;
+		Unlock();
+		for(int i = 0; i < n; i++)
+		{
+			const int as = ReadAttackState(ids[i]);
+			if(as < 0) continue;
+			const bool attacking = (as == 1 || as == 2);
+			bool start = false;
+			Lock();
+			{
+				int & prev = g_npcAtkPrev[ids[i]];
+				if(attacking && prev == 0) start = true;
+				if(!attacking && prev == 1) { if(g_npcAtkEnd.size() > 600) g_npcAtkEnd.clear(); g_npcAtkEnd[ids[i]] = now; }
+				prev = attacking ? 1 : 0;
+				if(g_npcAtkPrev.size() > 600) g_npcAtkPrev.clear();
+			}
+			Unlock();
+			if(start && charge)
+			{
+				Actor * a = ActorFromFormId(ids[i]);
+				if(a) NpcSwingCharge(a, ids[i], now, 1.0f);
+			}
+		}
+	}
 	void TickLockJobs(DWORD now)
 	{
 		UInt32 ids[32]; int n = 0;
@@ -3606,7 +3832,7 @@ namespace
 
 	// Custo de estamina de um golpe do jogador. mode: 0 balanco normal, 1 golpe forte, 2 golpe de escudo.
 	// rightType: codigo do Papyrus (GetEquippedItemType). Devolve 0 se estiver desligado.
-	float N_GetSwingCost(StaticFunctionTag *, SInt32 mode, SInt32 rightType)
+	float N_GetSwingCost(StaticFunctionTag *, SInt32 mode, SInt32 rightType, float weight)
 	{
 		g_lastSwingTick = GetTickCount();
 		if(!g_cfg.stamEnabled || g_cfg.swingCostPlayer <= 0.0f) return 0.0f;
@@ -3615,13 +3841,27 @@ namespace
 		if(mode == 0 && now < g_powerUntil) return 0.0f;	// o golpe forte ja pagou
 		int ty = rightType;
 		if(ty < 0 || ty > 12) ty = 1;
-		float c = g_cfg.swingCostPlayer * g_cfg.typeMult[ty];
-		if(mode == 1) { c = g_cfg.swingCostPlayer * g_cfg.typeMult[ty] * g_cfg.powerOwnCost; g_powerUntil = now + 1500; }
-		else if(mode == 2) c = g_cfg.swingCostPlayer * g_cfg.bashCostMult;
-		c *= 1.0f + (PlayerArmor() / 100.0f) * g_cfg.armorCostFactor;
+		float c;
+		if(g_cfg.newCost)
+		{
+			// v0.23: custo pelo peso: (base + peso x fator) x tipo; forte x PowerMult; bash (peso do escudo) x BashWeightMult
+			if(mode == 2) c = WeightCost(weight) * g_cfg.bashMult2;
+			else
+			{
+				c = WeightCost(weight) * g_cfg.typeMult[ty];
+				if(mode == 1) { c *= g_cfg.powerMult2; g_powerUntil = now + 1500; }
+			}
+		}
+		else
+		{
+			c = g_cfg.swingCostPlayer * g_cfg.typeMult[ty];
+			if(mode == 1) { c = g_cfg.swingCostPlayer * g_cfg.typeMult[ty] * g_cfg.powerOwnCost; g_powerUntil = now + 1500; }
+			else if(mode == 2) c = g_cfg.swingCostPlayer * g_cfg.bashCostMult;
+			c *= 1.0f + (PlayerArmor() / 100.0f) * g_cfg.armorCostFactor;
+		}
 		if(!(c > 0.0f && c < 10000.0f)) c = 0.0f;
 		static volatile LONG costLogged = 0;
-		if(g_cfg.diag && costLogged < 200) { InterlockedIncrement(&costLogged); _MESSAGE("swing cost: mode=%d weaponType=%d -> %.1f stamina (power attacks: own cost x%.2f, the game's own fPowerAttackStaminaPenalty is separate)", (int)mode, (int)rightType, c, g_cfg.powerOwnCost); }
+		if(g_cfg.diag && costLogged < 200) { InterlockedIncrement(&costLogged); _MESSAGE("swing cost: mode=%d weaponType=%d weight=%.1f -> %.1f stamina", mode, rightType, weight, c); }
 		return c;
 	}
 
@@ -3635,20 +3875,54 @@ namespace
 
 	// Regeneracao de estamina do jogador (% para StaminaRateMult, -1 = nao mexer), com combate:
 	// exausto = 0; ha pouco bateu = 0 (tem de parar); a segurar o bloqueio = mais lenta; em combate = mais rapida.
+	volatile LONG g_playerExhausted = 0;
 	float N_GetCombatRegen(StaticFunctionTag *, bool inCombat)
 	{
 		if(!g_cfg.stamEnabled) return -1.0f;
 		const DWORD now = GetTickCount();
 		if(g_exhaustBlockUntil && (LONG)(now - g_exhaustBlockUntil) < 0) return 0.0f;
 		float base = 100.0f;
-		if(g_cfg.armorRegenEnabled) { base = 100.0f / (1.0f + (PlayerArmor() / 100.0f) * g_cfg.armorRegenFactor); if(base < 10.0f) base = 10.0f; }
+		if(g_cfg.classRegen)
+		{
+			const int cls = ArmorClass(PlayerArmor(), true);
+			base = 100.0f * (1.0f - g_cfg.classRegenPenalty * (float)(cls - 1));
+			if(base < 10.0f) base = 10.0f;
+		}
+		else if(g_cfg.armorRegenEnabled) { base = 100.0f / (1.0f + (PlayerArmor() / 100.0f) * g_cfg.armorRegenFactor); if(base < 10.0f) base = 10.0f; }
 		else if(!g_cfg.regenEnabled) return -1.0f;
+		// poise do jogador: staggerlock = sem regeneracao; poise baixo = regeneracao mais lenta
+		{
+			float pf = 1.0f; bool lock = false;
+			Lock();
+			{
+				StateMap::iterator it = g_states.find(0x14);
+				if(it != g_states.end() && it->second.max > 0.0f)
+				{
+					pf = it->second.cur / it->second.max;
+					lock = (now < it->second.lockUntil);
+				}
+			}
+			Unlock();
+			if(lock) return 0.0f;
+			if(pf < g_cfg.tierLow) base *= g_cfg.poiseRegenLow;
+			else if(pf < g_cfg.tierMid) base *= g_cfg.poiseRegenMid;
+		}
+		// estamina baixa: zona de cansaco; exausto (depois do tempo minimo): regeneracao reduzida
+		{
+			float sc = 0.0f, sm = 0.0f;
+			PlayerCharacter * pl = Engine::Player();
+			if(pl && ReadAV((Actor *)pl, 26, &sc, &sm) && sm > 0.0f && sc / sm < g_cfg.lowStamZone) base *= g_cfg.lowStamRegen;
+		}
+		if(g_playerExhausted) base *= g_cfg.exhaustRegenFactor;
 		if(!g_cfg.regenEnabled || !inCombat) return base;
 		if(g_lastSwingTick && (now - g_lastSwingTick) < (DWORD)g_cfg.regenDelayMs) return 0.0f;
 		float r = base * g_cfg.regenCombatPct / 100.0f;
 		if(g_blockHeld) r *= g_cfg.regenBlockFactor;
 		return r;
 	}
+	float N_GetExhaustMax(StaticFunctionTag *) { return g_cfg.exhaustMaxSeconds; }
+	float N_GetExhaustTarget(StaticFunctionTag *) { return g_cfg.exhaustTargetPct; }
+	void N_ExhaustEnded(StaticFunctionTag *) { g_playerExhausted = 0; }
 
 	float N_GetExhaustSeconds(StaticFunctionTag *)
 	{
@@ -3676,7 +3950,7 @@ namespace
 			}
 		}
 		Unlock();
-		if(ok) { g_exhaustBlockUntil = GetTickCount() + (DWORD)(g_cfg.exhaustSeconds * 1000.0f); _MESSAGE("EXHAUSTION: player ran out of stamina by swinging"); }
+		if(ok) { g_exhaustBlockUntil = GetTickCount() + (DWORD)(g_cfg.exhaustSeconds * 1000.0f); g_playerExhausted = 1; _MESSAGE("EXHAUSTION: player ran out of stamina by swinging"); }
 		return ok;
 	}
 
@@ -3783,10 +4057,13 @@ namespace
 	bool RegisterPapyrus(VMClassRegistry * registry)
 	{
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetBleedSeconds", "NahIDWinNative", N_GetBleedSeconds, registry));
-		registry->RegisterFunction(new NativeFunction2 <StaticFunctionTag, float, SInt32, SInt32>("GetSwingCost", "NahIDWinNative", N_GetSwingCost, registry));
+		registry->RegisterFunction(new NativeFunction3 <StaticFunctionTag, float, SInt32, SInt32, float>("GetSwingCost", "NahIDWinNative", N_GetSwingCost, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetRegenPercent", "NahIDWinNative", N_GetRegenPercent, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, bool>("GetCombatRegen", "NahIDWinNative", N_GetCombatRegen, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));
+		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustMax", "NahIDWinNative", N_GetExhaustMax, registry));
+		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustTarget", "NahIDWinNative", N_GetExhaustTarget, registry));
+		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("ExhaustEnded", "NahIDWinNative", N_ExhaustEnded, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("TryExhaust", "NahIDWinNative", N_TryExhaust, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("PowerStart", "NahIDWinNative", N_PowerStart, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, float>("SetWornWeight", "NahIDWinNative", N_SetWornWeight, registry));
@@ -4045,6 +4322,7 @@ namespace
 		if(!ready) return;
 		TickSupreme(now);
 		TickLockJobs(now);
+		TickNpcSwings(now);
 		TickPerilous(now);
 		InpaCtlTick(now);
 		TickFleeWatch(now);

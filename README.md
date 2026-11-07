@@ -223,3 +223,12 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - **Resistencia a uma classe acima**: um ataque normal de classe superior conta como da mesma classe (menos dano de poise e sem stagger na primeira fase). Golpes fortes, bash e gigantes (classe 4) nao tem o desconto.
 - O escalao do stagger (>50%, 50-25%, <25%) passa a ser lido pelo poise **antes** do golpe.
 - Log `worn armor weight ... -> player defense class N`.
+
+## v0.23.0 - estamina reformulada + guarda dos NPC
+- **Custo por peso**: `(6 + peso x 0,9) x tipo`; golpe forte x2,2; bash pelo peso do escudo x1,5. Os custos do proprio jogo (ataque, bash, bloqueio) ficam a zero em cada arranque (`ZeroVanillaCosts`); o log mostra `GMST nome: antes -> depois` para confirmar os nomes.
+- **NPC pagam por balanco** (inicio da animacao de ataque; peso da arma visto nos golpes anteriores, 10 por omissao); o golpe forte paga o extra ao acertar. O piso de estamina continua opcional.
+- **Bloqueio gasta estamina** pelo dano absorvido x 0,35 x 1,5^(diferenca de classe contra a armadura); escudo x0,6. Sem estamina: **guarda partida** (poise a 0, staggerlock 2 s jogador / 3 s NPC, +25% de postura).
+- **Ligacao estamina-poise-postura**: estamina < 25% = regeneracao x0,6 e dano de poise x1,25; poise < 50% / 25% = regeneracao x0,75 / x0,5; staggerlock = sem regeneracao; classe de armadura -10% de regeneracao por classe; parry devolve 30% da estamina.
+- **Exaustao dinamica**: minimo `Seconds` (2 s), depois ate 40% de estamina ou 8 s; regeneracao x0,6 durante ela.
+- `HitCostNPC` passa a 0 (substituido pela cobranca por balanco).
+- **Guarda dos NPC**: atraso do bloqueio 400 ms (`BlockStartDelayMs`); o NPC nao bloqueia durante a animacao de ataque nem 300 ms depois (`AttackRecoverMs`): esses golpes contam como sem bloqueio para poise, postura e stagger.

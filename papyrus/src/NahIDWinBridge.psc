@@ -53,7 +53,7 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	lastRegen = -1.0
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.22.1: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.23.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -63,6 +63,27 @@ Function ApplyNpcBlock()
 	if NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
 		Game.SetGameSettingFloat("fCombatBlockChanceMin", NahIDWinNative.IniGetF("NpcBlock", "ChanceMin", 0.3))
 	endif
+	ZeroVanillaCosts()
+EndFunction
+
+; v0.23: o mod passa a cobrar os custos de estamina (golpe, bash, bloqueio); os do jogo ficam a zero (os Game Settings nao ficam gravados no save)
+Function ZeroVanillaCosts()
+	if NahIDWinNative.IniGetF("General", "Enabled", 1.0) < 0.5 || NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5 || NahIDWinNative.IniGetF("Stamina", "ZeroVanillaCosts", 1.0) < 0.5
+		return
+	endif
+	ZeroGmst("fStaminaAttackWeaponBase")
+	ZeroGmst("fStaminaAttackWeaponMult")
+	ZeroGmst("fPowerAttackStaminaPenalty")
+	ZeroGmst("fStaminaBashBase")
+	ZeroGmst("fStaminaPowerBashBase")
+	ZeroGmst("fStaminaBlockBase")
+	ZeroGmst("fStaminaBlockMult")
+EndFunction
+
+Function ZeroGmst(string gmstName)
+	float before = Game.GetGameSettingFloat(gmstName)
+	Game.SetGameSettingFloat(gmstName, 0.0)
+	NahIDWinNative.Log("GMST " + gmstName + ": " + before + " -> " + Game.GetGameSettingFloat(gmstName))
 EndFunction
 
 Function RegisterInputs()
@@ -484,7 +505,17 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	if asEventName == "weaponLeftSwing"
 		hand = 0
 	endif
-	float cost = NahIDWinNative.GetSwingCost(mode, pl.GetEquippedItemType(hand))
+	float wgt = 0.0
+	Form wo
+	if mode == 2
+		wo = pl.GetEquippedObject(0)
+	else
+		wo = pl.GetEquippedObject(hand)
+	endif
+	if wo
+		wgt = wo.GetWeight()
+	endif
+	float cost = NahIDWinNative.GetSwingCost(mode, pl.GetEquippedItemType(hand), wgt)
 	if cost > 0.0
 		pl.DamageActorValue("Stamina", cost)
 		if pl.GetActorValue("Stamina") <= 0.0
@@ -521,13 +552,23 @@ Function DoExhaustPlayer()
 		Debug.Notification("NAH-I-D-WIN: EXHAUSTED!")
 	endif
 	Utility.Wait(secs)
+	; exaustao dinamica: depois do tempo minimo dura ate a estamina chegar ao alvo (ou ao tempo maximo)
+	float maxS = NahIDWinNative.GetExhaustMax()
+	float tgtP = NahIDWinNative.GetExhaustTarget()
+	float elapsed = secs
+	while elapsed < maxS && pl.GetActorValue("Stamina") < pl.GetActorValueMax("Stamina") * tgtP / 100.0
+		Utility.Wait(0.5)
+		elapsed += 0.5
+	endwhile
+	NahIDWinNative.ExhaustEnded()
 	if speedCut > 0.0
 		pl.ModActorValue("SpeedMult", speedCut)
 		speedCut = 0.0
 	endif
 	float rec = NahIDWinNative.IniGetF("Exhaustion", "RecoverStamina", 50.0)
-	if rec > 0.0
-		pl.RestoreActorValue("Stamina", rec)
+	float curSt = pl.GetActorValue("Stamina")
+	if rec > curSt
+		pl.RestoreActorValue("Stamina", rec - curSt)
 	endif
 	exhaustedNow = false
 	lastRegen = -1.0
