@@ -53,7 +53,7 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	lastRegen = -1.0
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.20.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.22.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -432,6 +432,7 @@ bool inCombatNow = false
 Function ApplyRegen()
 	Actor pl = Game.GetPlayer()
 	inCombatNow = pl.IsInCombat()
+	NahIDWinNative.SetLeftType(pl.GetEquippedItemType(0))
 	float r = NahIDWinNative.GetCombatRegen(inCombatNow)
 	if r >= 0.0 && Math.Abs(r - lastRegen) > 1.0
 		lastRegen = r

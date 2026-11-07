@@ -22,6 +22,8 @@ float Function GetKnockbackForce() global native
 float Function GetRegenPercent() global native
 ; Regeneracao com combate (exausto 0, a bater 0, a bloquear mais lenta, em combate mais rapida). -1 = nao mexer.
 float Function GetCombatRegen(bool inCombat) global native
+; Tipo do item da mao esquerda do jogador (10 = escudo): o deflect de magia gasta menos magicka e devolve mais com escudo.
+Function SetLeftType(int t) global native
 
 ; Exaustao (estamina a zero): duracao em segundos e pedido de entrada (false = em recarga).
 float Function GetExhaustSeconds() global native

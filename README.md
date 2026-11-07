@@ -199,3 +199,16 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 ## v0.20.3 - auto-reparacao do parry do Inpa
 - Log 0.20.2: em 19 golpes bloqueados, o `control` do Inpa ficou sempre a 2 (mesmo 31 ms depois do clique) e nao houve nenhum `blockHitStart`: o script de parry do Inpa nao estava a correr (a latencia do Papyrus era baixa, 31 ms).
 - O menu reaplica os feiticos do Inpa 4 s depois de carregar (`[Inpa] RefreshOnLoad=1`) e quando a DLL detecta 3 falhas seguidas (`[Inpa] AutoFix=1`, 1x por minuto). E o mesmo que desligar e ligar o MOD no menu.
+
+## v0.21.0 - shout vanilla, ESP sem registos novos, dupla reacao
+- O parry do Inpa quebrou com o `NahIDWin.esp` da v0.18.0 (registos 0x846/0x847), mesmo sem a pasta DAR. Volta a usar-se o ESP da v0.11.0. A marca de animacao, a pasta DAR e `tools/add_animmark.py` deixaram de existir.
+- Supremo Rage: animacao vanilla de gritar (`[Supreme] ActivationAnim=shoutStart`; o ini lista nomes alternativos a tentar). O log mostra o evento enviado.
+- Dupla reacao do parry: no modo Inpa, a DLL engole so o `blockHitStart` gerado pelo proprio jogo (thread principal) quando a janela do parry esta aberta; o do Inpa (Papyrus) passa sempre. `[Parry] SwallowGameReaction=1`. O log do `PLAYER-ANIM-EVENT` passa a indicar `main=1/0`.
+- Removido o auto-reparo do Inpa (`AutoFix`/`RefreshOnLoad`), que nao fez nada.
+
+## v0.22.0 - poise reformulado + deflect continuo
+- **Classes 1-4** de ataque e defesa (`[Classes]`): 1 roupa/armas leves, 2 armadura leve/armas medias, 3 pesada, 4 bloqueio ativo, gigantes e golpes carregados (golpe forte sobe uma classe). Dano de poise x `DiffBase^(ataque-defesa)`. Classe 4 do atacante da dano de postura severo (x2). A armadura conta pelo tipo (classe) e pelo valor.
+- **Escaloes** (`[Tiers]`): >50% estavel (so stagger de classe superior, postura x0,25); 50-25% staggers leves (postura x0,6); <25% medios (postura x1). Acabou o stagger leve automatico em todos os golpes.
+- **Staggerlock** (`[StaggerLock]`): poise a 0 = stagger pesado 3 s (NPC) / 2 s (jogador); cada golpe nesse periodo repete o stagger pesado e a postura leva x3; no fim o poise enche. Regeneracao: 3 s de espera, 10 s para encher.
+- **Deflect continuo**: segurando o bloqueio com magicka, toda a magia (tambem continua) e desviada sem dano. Custo 0,6 (arma) / 0,4 (escudo) de magicka por ponto de dano; devolve 70% (arma) / 100% (escudo) a vida, poise e postura de quem lancou. Sem magicka volta ao bloqueio normal. `[Magic] Deflect*`.
+- Log do `PLAYER-ANIM-EVENT` mostra o `tid` (thread) para estudar a dupla reacao do parry; o log de golpes mostra `class atacante>defesa`.

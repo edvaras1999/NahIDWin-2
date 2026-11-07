@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.21.0 (shout vanilla; sem ESP novo; dupla reacao; exaustao 5 s; regeneracao em combate; piso de estamina dos NPC)"
+#define PLUGIN_VERSION_STR	"0.22.0 (poise reformulado: classes 1-4, escaloes, staggerlock; deflect continuo com magia)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -163,6 +163,15 @@ namespace
 		int		lightPlayer;
 		int		lightNpc;
 		int		lightCooldownMs;	// tempo minimo entre dois staggers leves no mesmo ator
+		// v0.22: classes de ataque/defesa 1-4, escaloes de poise, staggerlock
+		float	classDiffBase, classPostureFloor, classPoiseStep, armorClassMid, armorClassHeavy;
+		float	lightWeightMax, midWeightMax, creatureHeavyMass, creatureMidMass;
+		float	tierMid, tierLow, postureTierHigh, postureTierMid, postureTierLow;
+		float	lockSecondsNpc, lockSecondsPlayer, lockPostureMult, severePostureMult;
+		int		magicClass;
+		// deflect continuo
+		int		deflectRequireParry, deflectRecast;
+		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
 		int		lightCooldownPlayerMs;	// idem, para o jogador
 		int		mediumOnPower;		// golpe forte (power attack) sem quebrar da stagger medio
 
@@ -381,6 +390,25 @@ namespace
 		c.lightPlayer	= IniI("Stagger", "LightPlayer", 1);
 		c.lightNpc		= IniI("Stagger", "LightNPCs", 1);
 		c.lightCooldownMs = IniI("Stagger", "LightCooldownMs", 700);
+		c.classDiffBase	= IniF("Classes", "DiffBase", 1.5f);
+		c.classPostureFloor = IniF("Classes", "PostureFloor", 0.5f);
+		c.classPoiseStep = IniF("Classes", "PoiseStepPerArmorClass", 0.35f);
+		c.armorClassMid	= IniF("Classes", "ArmorMid", 40.0f);
+		c.armorClassHeavy = IniF("Classes", "ArmorHeavy", 150.0f);
+		c.lightWeightMax = IniF("Classes", "LightWeaponMaxWeight", 8.0f);
+		c.midWeightMax	= IniF("Classes", "MediumWeaponMaxWeight", 16.0f);
+		c.creatureMidMass = IniF("Classes", "CreatureMediumMass", 0.9f);
+		c.creatureHeavyMass = IniF("Classes", "CreatureHeavyMass", 1.5f);
+		c.magicClass	= IniI("Classes", "MagicClass", 2);
+		c.tierMid		= IniF("Tiers", "MidFraction", 0.5f);
+		c.tierLow		= IniF("Tiers", "LowFraction", 0.25f);
+		c.postureTierHigh = IniF("Tiers", "PostureMultHigh", 0.25f);
+		c.postureTierMid = IniF("Tiers", "PostureMultMid", 0.6f);
+		c.postureTierLow = IniF("Tiers", "PostureMultLow", 1.0f);
+		c.lockSecondsNpc = IniF("StaggerLock", "SecondsNpc", 3.0f);
+		c.lockSecondsPlayer = IniF("StaggerLock", "SecondsPlayer", 2.0f);
+		c.lockPostureMult = IniF("StaggerLock", "PostureMult", 3.0f);
+		c.severePostureMult = IniF("Classes", "SeverePostureMult", 2.0f);
 		c.lightCooldownPlayerMs = IniI("Stagger", "LightCooldownPlayerMs", 1500);
 		c.mediumOnPower	= IniI("Stagger", "MediumOnPowerAttack", 1);
 
@@ -388,8 +416,8 @@ namespace
 		c.armorFrac		= IniF("Poise", "ArmorFraction", 0.5f);
 		c.minPoise		= IniF("Poise", "MinPoise", 10.0f);
 		c.armorAV		= IniI("Poise", "ArmorActorValue", 39);
-		c.regenSeconds	= IniF("Poise", "RegenSeconds", 30.0f);
-		c.regenDelay	= IniF("Poise", "RegenDelaySeconds", 2.0f);
+		c.regenSeconds	= IniF("Poise", "RegenSeconds", 10.0f);
+		c.regenDelay	= IniF("Poise", "RegenDelaySeconds", 3.0f);
 		c.playerTakenMult = IniF("Poise", "PlayerTakenMult", 1.5f);
 		c.poiseMaxScalePlayer = IniF("Poise", "MaxScalePlayer", 4.5f);
 		c.poiseMaxScaleNpc = IniF("Poise", "MaxScaleNPC", 9.0f);
@@ -508,6 +536,15 @@ namespace
 		c.magicDotMs	= IniI("Magic", "DotIntervalMs", 1000);
 		c.magicDotMult	= IniF("Magic", "DotPoiseMult", 0.5f);
 		c.deflectEnabled = IniI("Magic", "DeflectEnabled", 1);
+		c.deflectRequireParry = IniI("Magic", "DeflectRequireParry", 0);
+		c.deflectRecast	= IniI("Magic", "DeflectRecast", 0);
+		c.deflectCostWeapon = IniF("Magic", "DeflectCostWeapon", 0.6f);
+		c.deflectCostShield = IniF("Magic", "DeflectCostShield", 0.4f);
+		c.deflectRetWeapon = IniF("Magic", "DeflectReturnWeapon", 0.7f);
+		c.deflectRetShield = IniF("Magic", "DeflectReturnShield", 1.0f);
+		c.deflectPoiseFactor = IniF("Magic", "DeflectPoiseFactor", 1.0f);
+		c.deflectPostureFactor = IniF("Magic", "DeflectPostureFactor", 1.0f);
+		c.deflectWindowMs = IniF("Magic", "DeflectWindowMs", 2500.0f);
 		c.perilEnabled	= IniI("Perilous", "Enabled", 1);
 		c.perilChance	= IniI("Perilous", "ChancePercent", 25);
 		c.perilWindowMs	= IniI("Perilous", "WindowMs", 1300);
@@ -639,7 +676,8 @@ namespace
 		float	max;
 		DWORD	lastHit;
 		DWORD	lastTick;
-		DWORD	immuneUntil;	// depois de quebrar o poise
+		DWORD	immuneUntil;	// (legado)
+		DWORD	lockUntil;		// staggerlock: poise a zero ate aqui; no fim o poise enche
 		float	pCur;			// postura atual (SOBE com os golpes; ao chegar a pMax: BleedOut)
 		float	pMax;
 		DWORD	pLastHit;
@@ -677,6 +715,7 @@ namespace
 	struct FleeSlot { int combat; DWORD lastLog; int seen; };
 	std::map<UInt32, FleeSlot> g_flee;
 	DWORD g_fleeTick = 0;
+	volatile LONG	g_leftType = 0;			// tipo do item da mao esquerda (Papyrus GetEquippedItemType: 10 = escudo)
 	volatile LONG	g_deflectOn = 0;		// parry numa magia: enquanto segurar o bloqueio, a magia e devolvida
 	volatile DWORD	g_deflectStart = 0;
 	volatile UInt32	g_parryAtkId = 0;		// anti-duplicacao: um ataque conta um parry so
@@ -710,6 +749,11 @@ namespace
 	// Chamar com o lock tomado.
 	void Regen(PoiseState & st, DWORD now)
 	{
+		if(st.lockUntil)
+		{
+			if((LONG)(now - st.lockUntil) < 0) { st.lastTick = now; return; }	// staggerlock: sem regeneracao
+			st.lockUntil = 0; st.cur = st.max; st.lastHit = now;				// fim do lock: poise cheio
+		}
 		if(g_cfg.regenSeconds > 0.0f && st.cur < st.max)
 		{
 			DWORD from = st.lastHit + (DWORD)(g_cfg.regenDelay * 1000.0f);
@@ -754,7 +798,7 @@ namespace
 				}
 			}
 			PoiseState s;
-			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0;
+			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0;
 			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
@@ -830,9 +874,17 @@ namespace
 		}
 	}
 
+	// Classe de defesa por tipo/valor da armadura: 1 roupa/leve, 2 media, 3 pesada.
+	int ArmorClass(float armor)
+	{
+		if(armor >= g_cfg.armorClassHeavy) return 3;
+		if(armor >= g_cfg.armorClassMid) return 2;
+		return 1;
+	}
 	float ComputeMax(const ActorStats & s)
 	{
 		float m = s.mass * g_cfg.massMult + s.armor * g_cfg.armorFrac;
+		m *= 1.0f + (float)(ArmorClass(s.armor) - 1) * g_cfg.classPoiseStep;
 		if(m < g_cfg.minPoise) m = g_cfg.minPoise;
 		m *= s.isPlayer ? g_cfg.poiseMaxScalePlayer : g_cfg.poiseMaxScaleNpc;
 		if(!s.isPlayer && s.boss) m *= g_cfg.bossPoiseMult;
@@ -1647,6 +1699,39 @@ namespace
 		return dmg;
 	}
 
+	// Classe de ataque 1-4: arma (tipo/peso), criatura (massa) ou magia; golpe forte sobe uma classe; gigante = 4.
+	int AttackClass(const HitInfo & h)
+	{
+		int c = 1;
+		if(h.sourceKind == 1)
+		{
+			const int t = h.weaponType;
+			if(t == 0 || t == 2) c = 1;
+			else if(t == 5 || t == 6) c = 3;
+			else if(h.weaponWeight < g_cfg.lightWeightMax) c = 1;
+			else if(h.weaponWeight < g_cfg.midWeightMax) c = 2;
+			else c = 3;
+		}
+		else if(h.sourceKind == 2) c = g_cfg.magicClass;
+		else
+		{
+			if(h.attacker.mass >= g_cfg.creatureHeavyMass) c = 3;
+			else if(h.attacker.mass >= g_cfg.creatureMidMass) c = 2;
+		}
+		if(h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) c++;
+		if(h.attackerIsActor && h.attacker.mass >= g_cfg.kbGiantMass) c = 4;
+		if(c < 1) c = 1;
+		if(c > 4) c = 4;
+		return c;
+	}
+	// Defesa: bloqueio ativo ou gigante = classe 4; senao pela armadura.
+	int DefenseClass(const ActorStats & s, bool blocking)
+	{
+		if(blocking) return 4;
+		if(!s.isPlayer && s.mass >= g_cfg.kbGiantMass) return 4;
+		return ArmorClass(s.armor);
+	}
+
 	// Parry: o atacante (NPC) ganha postura e, se nao estiver imune, leva stagger (ou BleedOut se a postura quebrar).
 	// Devolve o tipo de evento a enviar ao atacante (0 = nenhum).
 	void NoteMagicAttacker(UInt32 id, DWORD now)
@@ -1662,19 +1747,85 @@ namespace
 	// Deflect: depois de um parry numa magia, enquanto o jogador segura o bloqueio e tem estamina.
 	bool DeflectActive(DWORD now)
 	{
-		if(!g_cfg.deflectEnabled || !g_deflectOn) return false;
-		if(g_blockHeld == 0 || now - g_deflectStart > 20000) { g_deflectOn = 0; return false; }
+		if(!g_cfg.deflectEnabled) return false;
+		if(g_cfg.deflectRequireParry && !g_deflectOn) return false;
+		if(g_blockHeld == 0 || (g_cfg.deflectRequireParry && now - g_deflectStart > 20000)) { g_deflectOn = 0; return false; }
 		PlayerCharacter * p = Engine::Player();
 		float c = 1.0f, m = 1.0f;
 		if(!p || Engine::LifeState((Actor *)p) != 0) { g_deflectOn = 0; return false; }
-		if(ReadAV((Actor *)p, 26, &c, &m) && c <= 0.5f) { g_deflectOn = 0; return false; }
+		if(ReadAV((Actor *)p, 25, &c, &m) && c <= 1.0f) return false;	// sem magicka: bloqueio normal
 		return true;
 	}
 	bool DeflectBlocks(UInt32 attackerId, DWORD now)
 	{
 		if(!DeflectActive(now)) return false;
-		for(int i = 0; i < 4; i++) if(g_magicAtk[i].id == attackerId && now - g_magicAtk[i].tick < 1500) return true;
+		for(int i = 0; i < 4; i++) if(g_magicAtk[i].id == attackerId && now - g_magicAtk[i].tick < (DWORD)g_cfg.deflectWindowMs) return true;
 		return false;
+	}
+	void ClearMagicAttacker(UInt32 id)
+	{
+		for(int i = 0; i < 4; i++) if(g_magicAtk[i].id == id) g_magicAtk[i].tick = 0;
+	}
+	// Deflect continuo (Sekiro): paga magicka e devolve o dano a quem o causou (vida, poise e postura).
+	// Devolve a fracao (0..1) do dano que foi desviada. Sem objetos com destrutor.
+	float DeflectApply(Actor * self, Actor * attacker, float dmg, DWORD now)
+	{
+		float c = 0.0f, m = 0.0f;
+		if(!(dmg > 0.0f) || !ReadAV(self, 25, &c, &m) || c <= 1.0f) return 0.0f;
+		const bool shield = (g_leftType == 10);
+		const float perDmg = shield ? g_cfg.deflectCostShield : g_cfg.deflectCostWeapon;
+		float cost = dmg * perDmg;
+		float frac = 1.0f;
+		if(cost > c) { frac = (cost > 0.0f) ? c / cost : 0.0f; cost = c; }
+		if(cost > 0.0f) RestoreAV(self, 25, -cost);
+		const float ret = dmg * frac * (shield ? g_cfg.deflectRetShield : g_cfg.deflectRetWeapon);
+		if(ret > 0.0f && attacker && attacker->formID != 0x14)
+		{
+			float hc = 0.0f, hm = 0.0f;
+			if(ReadAV(attacker, 24, &hc, &hm) && hc > 1.0f) RestoreAV(attacker, 24, -((ret < hc - 1.0f) ? ret : hc - 1.0f));
+			ActorStats as;
+			if(ReadActorStats(attacker, &as) && as.alive)
+			{
+				const float mxA = ComputeMax(as), mpA = ComputeMaxPosture(as);
+				int kind = 0;
+				Lock();
+				{
+					PoiseState & st = FindOrCreate(as.id, mxA, mpA, now);
+					Regen(st, now);
+					RegenPosture(st, now);
+					const bool bleeding = (now < st.bleedUntil) || (now < st.bleedImmuneUntil);
+					const bool bossP1 = (as.boss && st.bossUsed == 0);
+					if(!bleeding && now >= st.rageUntil)
+					{
+						const bool inLock = (now < st.lockUntil);
+						st.lastHit = now; st.pLastHit = now;
+						if(!inLock)
+						{
+							st.cur -= ret * g_cfg.deflectPoiseFactor;
+							if(st.cur <= 0.0f) { st.cur = 0.0f; st.lockUntil = now + (DWORD)(g_cfg.lockSecondsNpc * 1000.0f); kind = 3; }
+						}
+						if(g_cfg.postureEnabled)
+						{
+							st.pCur += ret * g_cfg.deflectPostureFactor * (inLock ? g_cfg.lockPostureMult : 1.0f);
+							if(st.pCur >= st.pMax && bossP1) { st.pCur = st.pMax * g_cfg.postureResetFraction; kind = 3; }
+							else if(st.pCur >= st.pMax)
+							{
+								st.pCur = st.pMax * g_cfg.postureResetFraction;
+								st.cur = mxA; st.lockUntil = 0;
+								st.bleedUntil = now + (DWORD)(g_cfg.bleedSeconds * 1000.0f);
+								st.bleedImmuneUntil = st.bleedUntil + (DWORD)(g_cfg.bleedExtraImmune * 1000.0f);
+								kind = 4;
+								InterlockedIncrement(&g_postureBreaks);
+							}
+						}
+					}
+				}
+				Unlock();
+				if(kind) { SendStaggerEvent((TESObjectREFR *)attacker, 0x14, kind); if(kind == 4) _MESSAGE("DEFLECT: posture break -> BLEEDOUT on %08X", as.id); else _MESSAGE("DEFLECT: poise/posture break -> heavy stagger on %08X", as.id); }
+			}
+		}
+		if(g_cfg.diag) { static volatile LONG dl = 0; if(dl < 200) { InterlockedIncrement(&dl); _MESSAGE("DEFLECT: dmg %.1f, magicka -%.1f (%s), returned %.1f to %08X", dmg, cost, shield ? "shield" : "weapon", ret, attacker ? attacker->formID : 0); } }
+		return frac;
 	}
 	// Limitador do dano continuo (Chamas, raios...): devolve true se este golpe de magia deve ser ignorado; *sustained = fluxo continuo.
 	bool MagicThrottle(UInt32 victim, UInt32 attacker, UInt32 source, DWORD now, bool * sustained)
@@ -1992,7 +2143,7 @@ namespace
 				if(st.pCur >= st.pMax)
 				{
 					st.pCur = st.pMax * g_cfg.postureResetFraction;
-					st.cur = mxA;
+					st.cur = mxA; st.lockUntil = 0;
 					st.bleedUntil = now + (DWORD)(g_cfg.bleedSeconds * 1000.0f);
 					st.bleedImmuneUntil = st.bleedUntil + (DWORD)(g_cfg.bleedExtraImmune * 1000.0f);
 					kind = 4;
@@ -2047,7 +2198,7 @@ namespace
 						if(g_reflectId[i] == h.attackerId) { slot = i; if(now - g_reflectTick[i] < 1000) fire = false; break; }
 						if(g_reflectTick[i] < g_reflectTick[slot]) slot = i;
 					}
-					if(fire)
+					if(fire && g_cfg.deflectRecast)
 					{
 						g_reflectId[slot] = h.attackerId; g_reflectTick[slot] = now;
 						_MESSAGE("DEFLECT: magic %08X from %08X reflected", h.sourceId, h.attackerId);
@@ -2058,6 +2209,7 @@ namespace
 			}
 			if(MagicThrottle(h.victim.id, h.attackerId, h.sourceId, now, &dotSustained)) return;
 		}
+		else if(h.victim.isPlayer && h.sourceKind != 2) ClearMagicAttacker(h.attackerId);
 		if(h.attackerIsActor && h.attackerId != 0 && h.victim.id != 0)
 		{
 			// quem trocou golpes com o jogador e hostil a ele (usado para escolher a barra do alvo)
@@ -2129,7 +2281,10 @@ namespace
 			if(!parry && !immune) _MESSAGE("PERILOUS attack landed on player (block ignored) by %08X", h.attackerId);
 			if(parry) _MESSAGE("PERILOUS attack parried: %08X takes extra posture", h.attackerId);
 		}
-		const float poiseDmg = (parry || immune) ? 0.0f : (blocked ? dmg * g_cfg.blockedMult : dmg);
+		const int atkCls = AttackClass(h);
+		const int defCls = DefenseClass(h.victim, blocked);
+		const float cmult = powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)(atkCls - defCls));
+		const float poiseDmg = (parry || immune) ? 0.0f : (blocked ? dmg * cmult * g_cfg.blockedMult : dmg * cmult);
 		float lowHp = 1.0f;
 		if(h.victim.hpMax > 0.0f)
 		{
@@ -2138,7 +2293,9 @@ namespace
 			if(frac > 1.0f) frac = 1.0f;
 			lowHp = 1.0f + g_cfg.postureLowHealthBonus * (1.0f - frac);
 		}
-		const float postureDmg = (parry || immune) ? 0.0f : dmg * g_cfg.postureDamageMult * lowHp * (blocked ? g_cfg.postureBlockedMult : 1.0f);
+		const float pcm = (cmult < g_cfg.classPostureFloor ? g_cfg.classPostureFloor : cmult) * ((atkCls == 4) ? g_cfg.severePostureMult : 1.0f);
+		const float postureBase = (parry || immune) ? 0.0f : dmg * pcm * g_cfg.postureDamageMult * lowHp * (blocked ? g_cfg.postureBlockedMult : 1.0f);
+		float postureDmg = postureBase;
 
 		// exaustao: a vitima ficou sem estamina?
 		bool exhaustCandidate = false;
@@ -2164,7 +2321,8 @@ namespace
 			before = st.cur;
 			pBefore = st.pCur;
 			bleeding = (now < st.bleedUntil) || (now < st.bleedImmuneUntil);
-			poiseWasImmune = (now < st.immuneUntil);
+			const bool inLock = (now < st.lockUntil);
+			poiseWasImmune = false;
 			raging = (now < st.rageUntil);
 			const bool bossP1 = (!h.victim.isPlayer && h.victim.boss && st.bossUsed == 0);
 			// execucao: golpe de arma do jogador num alvo com a postura quebrada (o boss so e executavel depois de gastar a 1a vida)
@@ -2203,13 +2361,18 @@ namespace
 				applied = true;
 				st.lastHit = now;
 				st.pLastHit = now;
-				st.cur -= poiseDmg;
-				if(st.cur <= 0.0f)
+				const float fracBefore = (mx > 0.0f && !inLock) ? before / mx : 0.0f;
+				if(!inLock)
 				{
-					poiseBroke = true;
-					st.cur = mx * g_cfg.resetFraction;
-					st.immuneUntil = now + (DWORD)(g_cfg.immuneSeconds * 1000.0f);
+					st.cur -= poiseDmg;
+					if(st.cur <= 0.0f)
+					{
+						poiseBroke = true;
+						st.cur = 0.0f;
+						st.lockUntil = now + (DWORD)((h.victim.isPlayer ? g_cfg.lockSecondsPlayer : g_cfg.lockSecondsNpc) * 1000.0f);
+					}
 				}
+				postureDmg = postureBase * (inLock ? g_cfg.lockPostureMult : (fracBefore > g_cfg.tierMid ? g_cfg.postureTierHigh : (fracBefore > g_cfg.tierLow ? g_cfg.postureTierMid : g_cfg.postureTierLow)));
 				if(g_cfg.postureEnabled)
 				{
 					st.pCur += postureDmg;
@@ -2224,6 +2387,7 @@ namespace
 						postureBroke = true;
 						st.pCur = st.pMax * g_cfg.postureResetFraction;
 						st.cur = mx;
+						st.lockUntil = 0;
 						st.bleedUntil = now + (DWORD)(g_cfg.bleedSeconds * 1000.0f);
 						st.bleedImmuneUntil = st.bleedUntil + (DWORD)(g_cfg.bleedExtraImmune * 1000.0f);
 					}
@@ -2232,11 +2396,25 @@ namespace
 				// que stagger? (a postura quebrada vence tudo; depois o poise quebrado; depois leve/medio)
 				if(postureBroke) kind = 4;
 				else if(poiseBroke || bossStagger) kind = 3;
+				else if(inLock)
+				{
+					// staggerlock: cada golpe sem bloqueio volta a dar stagger pesado (no maximo de 600 em 600 ms)
+					if(!blocked && now >= st.lightUntil) { kind = 3; st.lightUntil = now + 600; }
+				}
 				else if(!blocked && g_cfg.lightEnabled && (h.victim.isPlayer ? g_cfg.lightPlayer : g_cfg.lightNpc))
 				{
-					if(heavyHit && g_cfg.mediumOnPower) kind = 2;
-					else if(now >= st.lightUntil) kind = 1;
-					if(kind) st.lightUntil = now + (DWORD)(h.victim.isPlayer ? g_cfg.lightCooldownPlayerMs : g_cfg.lightCooldownMs);
+					// escalao do poise (depois do golpe) e diferenca de classe decidem o stagger
+					const float f2 = (mx > 0.0f) ? st.cur / mx : 1.0f;
+					const int d = atkCls - defCls;
+					int k = 0;
+					if(f2 > g_cfg.tierMid) { if(d >= 2) k = 2; else if(d == 1) k = 1; }
+					else if(f2 > g_cfg.tierLow) { if(d >= 1 && g_cfg.mediumOnPower) k = 2; else if(d >= 0) k = 1; }
+					else { if(d >= -1) k = 2; else k = 1; }
+					if(k && now >= st.lightUntil)
+					{
+						kind = k;
+						st.lightUntil = now + (DWORD)(h.victim.isPlayer ? g_cfg.lightCooldownPlayerMs : g_cfg.lightCooldownMs);
+					}
 				}
 			}
 			// exaustao (estamina a zero): so se nada mais mais forte aconteceu neste golpe
@@ -2364,9 +2542,9 @@ namespace
 		if(g_cfg.diag && g_cfg.logHitsMax > 0 && g_hitLogged < g_cfg.logHitsMax)
 		{
 			InterlockedIncrement(&g_hitLogged);
-			_MESSAGE("hit: victim=%08X%s attacker=%08X src=%08X(kind %d type %d w=%.1f stg=%.2f) flags=%X%s%s | vArmor=%.1f vHpMax=%.0f | dmg=%.1f | poise %.1f -> %.1f/%.1f | posture %.1f -> %.1f/%.1f | %s%s%s%s",
+			_MESSAGE("hit: victim=%08X%s attacker=%08X src=%08X(kind %d type %d w=%.1f stg=%.2f) flags=%X%s%s | vArmor=%.1f vHpMax=%.0f | class %d>%d x%.2f | dmg=%.1f | poise %.1f -> %.1f/%.1f | posture %.1f -> %.1f/%.1f | %s%s%s%s",
 				h.victim.id, h.victim.isPlayer ? "(player)" : "", h.attackerId, h.sourceId, h.sourceKind, h.weaponType, h.weaponWeight, h.weaponStagger,
-				h.flags, blocked ? " BLOCKED" : "", parry ? " PARRY" : "", h.victim.armor, h.victim.hpMax, dmg, before, after, mx, pBefore, pAfter, mp,
+				h.flags, blocked ? " BLOCKED" : "", parry ? " PARRY" : "", h.victim.armor, h.victim.hpMax, atkCls, defCls, cmult, dmg, before, after, mx, pBefore, pAfter, mp,
 				bleeding ? "[bleedout/immune] " : "", (raging && !bleeding) ? "[rage] " : "", poiseBroke ? "POISE-BREAK " : "", postureBroke ? "POSTURE-BREAK" : "");
 		}
 
@@ -2511,9 +2689,10 @@ namespace
 			// Janela do parry: so o tempo decide (e o atacante estar a frente). Fora dela o dano e o bloqueio normal do jogo ficam como estao.
 			if(isPlayer && attacker && attacker != self && DeflectBlocks(attacker->formID, now))
 			{
-				result = 0.0f;
+				const float fr = DeflectApply(self, attacker, -amount, now);
+				result = amount * (1.0f - fr);
 				why = "deflect";
-				InterlockedIncrement(&g_hdParryZero);
+				if(fr > 0.0f) InterlockedIncrement(&g_hdParryZero);
 			}
 			else if(isPlayer && g_cfg.parryNoDamage && attacker && attacker != self && ParryWindowActive(now) && InFront(self, attacker))
 			{
@@ -2858,7 +3037,7 @@ namespace
 				if(animLogged < 300 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14)
 				{
 					InterlockedIncrement(&animLogged);
-					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetTickCount());
+					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d tid=%u t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetCurrentThreadId(), (unsigned)GetTickCount());
 				}
 			}
 			// Dupla reacao do parry: o jogo gera o seu blockHitStart (thread principal) e o Inpa manda outro (Papyrus). Com a janela do parry aberta
@@ -3232,6 +3411,7 @@ namespace
 	InputSink g_inputSink;
 
 	// ------------------------------------------------------------------ funcoes nativas para o Papyrus
+	void N_SetLeftType(StaticFunctionTag *, SInt32 t) { g_leftType = t; }
 	void N_ScriptReady(StaticFunctionTag *)
 	{
 		InterlockedIncrement(&g_scriptReady);
@@ -3463,6 +3643,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("TryExhaust", "NahIDWinNative", N_TryExhaust, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("PowerStart", "NahIDWinNative", N_PowerStart, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("SetLeftType", "NahIDWinNative", N_SetLeftType, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, BSFixedString>("Log", "NahIDWinNative", N_Log, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, SInt32>("GetLanguage", "NahIDWinNative", N_GetLanguage, registry));
 		registry->RegisterFunction(new NativeFunction3 <StaticFunctionTag, float, BSFixedString, BSFixedString, float>("IniGetF", "NahIDWinNative", N_IniGetF, registry));
