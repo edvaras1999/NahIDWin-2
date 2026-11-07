@@ -79,4 +79,4 @@ Five tabs: **General & System**, **Stamina**, **Poise & Posture**, **Stagger & B
 
 ## License
 
-GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / SoftTarget LE. Stagger spell records follow "SGC Stagger on hit". References: doodlum "Poise" (SE), TrueHUD LE API (Mhacks79, based on Ersh's TrueHUD).
+GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from SoftTarget LE. Stagger spell records follow "SGC Stagger on hit". References: doodlum "Poise" (SE), TrueHUD LE API (Mhacks79, based on Ersh's TrueHUD).
