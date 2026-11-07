@@ -76,6 +76,7 @@ float[] sStep
 float[] sDef
 int count
 int tableRev
+int buildTab = -1
 
 ; ---------------- opcoes desenhadas na pagina ----------------
 ; tipos: 1 interruptor MOD, 2 toggle do .ini, 3 slider do .ini, 4 toggle global, 5 slider global, 6 menu
@@ -92,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 29
+	return 30
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -112,6 +113,7 @@ Function ApplyIniGlobals()
 	ApplyIniGlobal(4, "BlockArrow")
 	ApplyIniGlobal(5, "BlockMagic")
 	ApplyIniGlobal(7, "ResistPoison")
+	ApplyParryGlobal()
 	if NahIDWinNative.IniGetF("Menu", "DifficultyInit", 0.0) < 0.5
 		NahIDWinNative.IniSetF("Menu", "DifficultyInit", 1.0)
 		if GetG(31) && GVal(31) > 0.5
@@ -146,10 +148,12 @@ EndEvent
 
 Function SetupPages()
 	ModName = "NAH-I-D-WIN"
-	Pages = new string[3]
-	Pages[0] = "MOD Setting"
-	Pages[1] = "Game Setting"
-	Pages[2] = "Advanced"
+	Pages = new string[5]
+	Pages[0] = "General & System"
+	Pages[1] = "Stamina"
+	Pages[2] = "Poise & Posture"
+	Pages[3] = "Stagger & Behaviors"
+	Pages[4] = "Special & HUD"
 EndFunction
 
 ; ---------------- utilitarios ----------------
@@ -501,6 +505,9 @@ EndFunction
 
 ; ---------------- tabela das opcoes .ini ----------------
 Function AddSetting(int blk, int ty, string sec, string key, string lpt, string lenn, string ipt, string ien, float mn, float mx, float stp, float df)
+	if TabOfBlk(blk) != buildTab || count >= 128
+		return
+	endif
 	sBlk[count] = blk
 	sType[count] = ty
 	sSec[count] = sec
@@ -518,11 +525,12 @@ EndFunction
 
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
-Function BuildTable()
-	if count > 0 && tableRev == 10
+Function BuildTable(int tab)
+	if count > 0 && tableRev == 11 && buildTab == tab
 		return
 	endif
-	tableRev = 10
+	tableRev = 11
+	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
 	sSec = new string[128]
@@ -544,7 +552,6 @@ Function BuildTable()
 	AddSetting(1, 0, "Poise", "RegenSeconds", "Regeneracao do poise (s)", "Poise regeneration (s)", "Segundos para o poise encher de zero a cheio.", "Seconds for poise to refill from zero to full.", 5.0, 120.0, 5.0, 30.0)
 	AddSetting(1, 0, "Poise", "RegenDelaySeconds", "Pausa antes de regenerar (s)", "Delay before regenerating (s)", "Segundos sem levar golpes antes de comecar a regenerar.", "Seconds without being hit before regeneration starts.", 0.0, 10.0, 0.5, 2.0)
 	AddSetting(1, 0, "Damage", "BlockedMult", "Poise gasto ao bloquear (x)", "Poise spent when blocking (x)", "Fracao do dano de poise que um golpe bloqueado causa.", "Fraction of poise damage a blocked hit causes.", 0.0, 1.0, 0.01, 0.15)
-	AddSetting(1, 0, "Stagger", "ImmuneSeconds", "Imunidade apos stagger pesado (s)", "Immunity after heavy stagger (s)", "Depois de um stagger pesado, poise e postura nao sobem durante este tempo.", "After a heavy stagger, poise and posture do not rise for this long.", 0.0, 8.0, 0.5, 2.5)
 	AddSetting(2, 1, "Posture", "Enabled", "Postura ligada", "Posture enabled", "Liga a barra de postura (separada da estamina). Quando enche: BleedOut.", "Enables the posture bar (separate from stamina). When it fills: BleedOut.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(2, 0, "Posture", "Difficulty", "DIFICULDADE da postura", "Posture DIFFICULTY", "1.0 normal. 2.0 = a postura aguenta o dobro. 0.5 = quebra com metade.", "1.0 normal. 2.0 = posture lasts twice as long. 0.5 = breaks with half.", 0.2, 10.0, 0.1, 1.0)
 	AddSetting(2, 0, "Posture", "ScalePlayer", "Postura - jogador (escala)", "Posture - player (scale)", "Tamanho da barra de postura do jogador.", "Size of the player's posture bar.", 1.0, 20.0, 0.5, 5.0)
@@ -576,7 +583,7 @@ Function BuildTable()
 	AddSetting(3, 0, "Rage", "NPCCooldownSeconds", "NPC: recarga (s)", "NPC: cooldown (s)", "Tempo minimo entre duas furias do mesmo NPC.", "Minimum time between two rages of the same NPC.", 5.0, 180.0, 5.0, 45.0)
 	AddSetting(3, 0, "Rage", "NPCCostPercent", "NPC: custo (%)", "NPC: cost (%)", "0 = gratis para os NPCs.", "0 = free for NPCs.", 0.0, 50.0, 1.0, 0.0)
 	AddSetting(4, 1, "Exhaustion", "Enabled", "Exaustao ligada", "Exhaustion enabled", "Estamina a zero: nao podes atacar nem regenerar por um tempo.", "Stamina at zero: you cannot attack or regenerate for a while.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(4, 0, "Exhaustion", "Seconds", "Duracao da exaustao (s)", "Exhaustion duration (s)", "Tempo sem poder atacar e sem regenerar.", "Time without attacking and without regenerating.", 1.0, 30.0, 0.5, 5.0)
+	AddSetting(4, 0, "Exhaustion", "Seconds", "Exaustao: duracao minima (s)", "Exhaustion: minimum duration (s)", "Tempo minimo sem regenerar estamina.", "Minimum time without stamina regeneration.", 1.0, 10.0, 0.5, 2.0)
 	AddSetting(4, 0, "Exhaustion", "SpeedFactor", "Exaustao: velocidade de movimento (x)", "Exhaustion: movement speed (x)", "0.5 = metade da velocidade enquanto exausto. 1 = sem reducao.", "0.5 = half speed while exhausted. 1 = no slowdown.", 0.1, 1.0, 0.05, 0.5)
 	AddSetting(4, 0, "Exhaustion", "PoiseDamageMult", "Exaustao: dano de poise/postura (x)", "Exhaustion: poise/posture damage (x)", "Quem esta exausto leva mais dano de poise e postura.", "Whoever is exhausted takes more poise and posture damage.", 1.0, 3.0, 0.1, 1.5)
 	AddSetting(4, 0, "Exhaustion", "RecoverStamina", "Exaustao: estamina recuperada no fim", "Exhaustion: stamina recovered at the end", "Estamina que o jogador recupera quando a exaustao acaba.", "Stamina the player gets back when exhaustion ends.", 0.0, 200.0, 5.0, 50.0)
@@ -584,10 +591,6 @@ Function BuildTable()
 	AddSetting(4, 0, "Exhaustion", "CooldownSeconds", "Recarga da exaustao (s)", "Exhaustion cooldown (s)", "Tempo minimo entre duas exaustoes.", "Minimum time between two exhaustions.", 0.0, 30.0, 1.0, 8.0)
 	AddSetting(4, 1, "Exhaustion", "NPCs", "Exaustao nos NPCs", "Exhaustion on NPCs", "NPCs sem estamina levam stagger pesado.", "NPCs with no stamina get a heavy stagger.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(5, 1, "Stamina", "Enabled", "Custo de estamina por golpe", "Stamina cost per swing", "Liga o custo de estamina por golpe e a influencia da armadura.", "Enables stamina cost per swing and armor influence.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(5, 0, "Stamina", "SwingCostPlayer", "Gasto de estamina por golpe - Jogador", "Stamina spent per hit - Player", "Estamina gasta por cada balanco de arma (mesmo sem acertar).", "Stamina spent by each weapon swing (even when missing).", 0.0, 40.0, 1.0, 10.0)
-	AddSetting(5, 0, "Stamina", "HitCostNPC", "Gasto de estamina por golpe - NPC", "Stamina spent per hit - NPC", "Estamina que o NPC perde por golpe que desfecha (0 = deixa-se aos mods de estamina).", "0 = left to stamina mods. Otherwise the DLL takes this per hit the NPC lands.", 0.0, 40.0, 1.0, 10.0)
-	AddSetting(5, 0, "Stamina", "PowerAttackOwnCost", "Golpe forte: custo extra do mod (x)", "Power attack: extra mod cost (x)", "0 = so o custo do jogo (PowerAttack Cost Mult acima). Acima de 0 o mod cobra tambem este multiplo do custo base.", "0 = only the game cost (PowerAttack Cost Mult above). Above 0 the mod also charges this multiple of the base cost.", 0.0, 4.0, 0.1, 0.0)
-	AddSetting(5, 0, "Stamina", "BashMult", "Golpe de escudo (x)", "Shield bash (x)", "Multiplicador do custo em golpe de escudo.", "Cost multiplier for shield bashes.", 0.0, 4.0, 0.1, 1.0)
 	AddSetting(5, 0, "Stamina", "CombatRegenPercent", "Regeneracao em combate (%)", "Combat regeneration (%)", "Velocidade da regeneracao de estamina em combate, em % da normal.", "Stamina regeneration speed in combat, in % of normal.", 50.0, 400.0, 10.0, 150.0)
 	AddSetting(5, 0, "Stamina", "CombatRegenDelayMs", "Pausa depois de bater (ms)", "Pause after attacking (ms)", "Sem regenerar durante este tempo depois de um golpe (so em combate).", "No regeneration for this long after a swing (combat only).", 0.0, 3000.0, 50.0, 600.0)
 	AddSetting(5, 0, "Stamina", "CombatRegenBlockFactor", "Regeneracao a bloquear (x)", "Regeneration while blocking (x)", "Multiplicador da regeneracao enquanto seguras o bloqueio.", "Regeneration multiplier while holding block.", 0.0, 1.0, 0.05, 0.4)
@@ -613,9 +616,6 @@ Function BuildTable()
 	AddSetting(8, 0, "Stamina", "TypeMult8", "Custo: Cajado (x)", "Cost: Staff (x)", "Multiplicador do custo de estamina para este tipo de arma.", "Stamina cost multiplier for this weapon type.", 0.0, 4.0, 0.1, 0.6)
 	AddSetting(8, 0, "Stamina", "TypeMult9", "Custo: Feitico (x)", "Cost: Spell (x)", "Multiplicador do custo de estamina para este tipo de arma.", "Stamina cost multiplier for this weapon type.", 0.0, 4.0, 0.1, 0.0)
 	AddSetting(8, 0, "Stamina", "TypeMult10", "Custo: Escudo (x)", "Cost: Shield (x)", "Multiplicador do custo de estamina para este tipo de arma.", "Stamina cost multiplier for this weapon type.", 0.0, 4.0, 0.1, 1.0)
-	AddSetting(9, 0, "Stamina", "ArmorCostFactor", "Armadura aumenta o custo", "Armor raises the cost", "Custo x (1 + armadura/100 x isto). Armadura pesada cansa mais.", "Cost x (1 + armor/100 x this). Heavy armor tires faster.", 0.0, 2.0, 0.05, 0.25)
-	AddSetting(9, 1, "Stamina", "ArmorRegenEnabled", "Armadura abranda a regeneracao", "Armor slows regeneration", "A armadura reduz a regeneracao de estamina do jogador. Desliga se achas a regeneracao lenta.", "Armor reduces the player's stamina regeneration. Turn off if regeneration feels slow.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(9, 0, "Stamina", "ArmorRegenFactor", "Intensidade da regeneracao", "Regeneration strength", "Regeneracao % = 100 / (1 + armadura/100 x isto).", "Regeneration % = 100 / (1 + armor/100 x this).", 0.0, 2.0, 0.05, 0.3)
 	AddSetting(10, 0, "TrueHUD", "Bar", "Barra do TrueHUD", "TrueHUD bar", "0 = poise a descer (recomendado), 1 = postura, 2 = risco.", "0 = poise, 1 = posture, 2 = risk (whichever is closest to breaking).", 0.0, 2.0, 1.0, 0.0)
 	AddSetting(10, 0, "TrueHUD", "PoiseWarnFraction", "Aviso de poise baixo (fracao)", "Low poise warning (fraction)", "A barra pisca quando o poise desce abaixo disto. 0 = desligado.", "The bar flashes when poise drops below this. 0 = off.", 0.0, 0.8, 0.05, 0.3)
 	AddSetting(10, 1, "TrueHUD", "FlashOnBreak", "Barra pisca ao quebrar", "Bar flashes on break", "", "", 0.0, 1.0, 1.0, 1.0)
@@ -651,8 +651,8 @@ Function BuildTable()
 	AddSetting(16, 1, "Perilous", "Enabled", "Ataque perigoso (bosses/gigantes)", "Perilous attack (bosses/giants)", "Aviso (simbolo) e ataque que ignora o bloqueio: esquiva ou faz parry. O parry da muita postura ao atacante.", "Warning (symbol) and an attack that ignores block: dodge or parry. A parry deals big posture damage to the attacker.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(16, 0, "Perilous", "ChancePercent", "Ataque perigoso: chance (%)", "Perilous: chance (%)", "Probabilidade de um ataque de boss/gigante ser perigoso.", "Chance that a boss/giant attack is perilous.", 0.0, 100.0, 5.0, 25.0)
 	AddSetting(16, 0, "Perilous", "ParryPosture", "Ataque perigoso: postura no parry", "Perilous: parry posture", "Postura extra (fracao do maximo) que o atacante leva se fizeres parry.", "Extra posture (fraction of max) the attacker takes if you parry.", 0.1, 1.0, 0.05, 0.5)
-	AddSetting(16, 1, "Magic", "DeflectEnabled", "Deflexao de magia", "Magic deflect", "Depois de um parry numa magia, enquanto seguras o bloqueio a magia e devolvida ao conjurador.", "After parrying a spell, while you hold block the spell is reflected to the caster.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(16, 0, "Magic", "DotPoiseMult", "Magia continua: poise/postura (x)", "Continuous magic: poise/posture (x)", "Fracao do poise/postura de magia continua (Chamas...). O golpe conta no maximo 1 vez por segundo.", "Fraction of poise/posture from continuous magic (Flames...). Counts at most once per second.", 0.0, 1.0, 0.05, 0.5)
+	AddSetting(19, 1, "Magic", "DeflectEnabled", "Deflexao de magia", "Magic deflect", "Depois de um parry numa magia, enquanto seguras o bloqueio a magia e devolvida ao conjurador.", "After parrying a spell, while you hold block the spell is reflected to the caster.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(19, 0, "Magic", "DotPoiseMult", "Magia continua: poise/postura (x)", "Continuous magic: poise/posture (x)", "Fracao do poise/postura de magia continua (Chamas...). O golpe conta no maximo 1 vez por segundo.", "Fraction of poise/posture from continuous magic (Flames...). Counts at most once per second.", 0.0, 1.0, 0.05, 0.5)
 	AddSetting(14, 1, "Execution", "Enabled", "Execucao garantida", "Guaranteed execution", "Acertar uma arma num alvo com a postura quebrada executa-o (feitico do Inpa). Bosses so depois da 1a vida.", "Hitting a posture-broken target with a weapon executes it (Inpa spell). Bosses only after their 1st life.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Criaturas grandes morrem de vez (sem animacao de execucao).", "Large creatures die outright (no execution animation).", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(15, 1, "Supreme", "Enabled", "Supremo Rage ligado", "Supreme Rage enabled", "Aura de fogo: tudo o que a furia da, mais dano em area. Cooldown muito longo.", "Fire aura: everything rage gives, plus area damage. Very long cooldown.", 0.0, 1.0, 1.0, 1.0)
@@ -662,7 +662,215 @@ Function BuildTable()
 	AddSetting(15, 0, "Supreme", "CostPercentPerSecond", "Custo (% da vida por segundo)", "Cost (% of health per second)", "Nunca te mata.", "Never kills you.", 1.0, 3.0, 0.5, 2.0)
 	AddSetting(12, 1, "Block", "DrainEnabled", "Bloqueio gasta estamina do atacante", "Block drains attacker stamina", "Bloqueio normal (sem parry) gasta estamina do atacante. Sem stagger.", "Normal block (no parry) drains the attacker's stamina. No stagger.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(12, 0, "Block", "AttackerStamina", "Estamina do atacante por golpe", "Attacker stamina per hit", "Estamina que o atacante perde por golpe bloqueado.", "Stamina the attacker loses per blocked hit.", 0.0, 60.0, 1.0, 10.0)
+	; ---- v0.24 rows ----
+	AddSetting(5, 0, "Stamina", "SwingBase", "Custo base por golpe", "Base cost per swing", "Custo fixo de cada golpe, antes do peso.", "Fixed cost of each swing before weight.", 0.0, 20.0, 0.25, 5.0)
+	AddSetting(5, 0, "Stamina", "SwingPerWeight", "Custo por peso da arma", "Cost per weapon weight", "Custo extra por unidade de peso da arma.", "Extra cost per unit of weapon weight.", 0.0, 3.0, 0.05, 0.75)
+	AddSetting(5, 0, "Stamina", "PowerMult", "Golpe forte (x)", "Power attack (x)", "Multiplicador do custo do golpe forte.", "Cost multiplier of power attacks.", 1.0, 4.0, 0.1, 2.0)
+	AddSetting(5, 0, "Stamina", "BashWeightMult", "Bash de escudo (x peso)", "Shield bash (x shield weight)", "Multiplicador do custo do bash, sobre o peso do escudo.", "Bash cost multiplier on shield weight.", 0.0, 4.0, 0.05, 1.35)
+	AddSetting(5, 0, "Stamina", "BlockCostFactor", "Custo do bloqueio (x dano)", "Block cost (x damage)", "Fracao do dano bloqueado que vira custo de estamina.", "Fraction of blocked damage paid in stamina.", 0.0, 1.0, 0.01, 0.28)
+	AddSetting(5, 0, "Stamina", "BlockCostShieldMult", "Custo do bloqueio com escudo (x)", "Block cost with shield (x)", "Multiplicador do custo ao bloquear com escudo.", "Block cost multiplier when using a shield.", 0.1, 1.0, 0.05, 0.6)
+	AddSetting(5, 0, "Stamina", "GuardBreakPosturePercent", "Guarda quebrada: postura (%)", "Guard break: posture (%)", "Postura perdida quando a estamina acaba a bloquear.", "Posture lost when stamina runs out while blocking.", 0.0, 100.0, 5.0, 20.0)
+	AddSetting(5, 0, "Stamina", "LowZoneFraction", "Zona baixa: abaixo de (fracao)", "Low zone: below (fraction)", "Abaixo desta fracao da estamina a regeneracao piora e levas mais dano de poise.", "Below this stamina fraction regen worsens and poise damage rises.", 0.0, 0.6, 0.05, 0.25)
+	AddSetting(5, 0, "Stamina", "LowZoneRegenMult", "Zona baixa: regeneracao (x)", "Low zone: regen (x)", "Multiplicador da regeneracao na zona baixa.", "Regen multiplier in the low zone.", 0.1, 1.0, 0.05, 0.7)
+	AddSetting(5, 0, "Stamina", "LowZonePoiseDamageMult", "Zona baixa: dano de poise (x)", "Low zone: poise damage (x)", "Multiplicador do dano de poise na zona baixa.", "Poise damage multiplier in the low zone.", 1.0, 2.0, 0.05, 1.2)
+	AddSetting(5, 0, "Stamina", "PoiseMidRegenMult", "Poise < 50%: regeneracao (x)", "Poise < 50%: regen (x)", "Regeneracao de estamina com o poise entre 50% e 25%.", "Stamina regen while poise is between 50% and 25%.", 0.1, 1.0, 0.05, 0.8)
+	AddSetting(5, 0, "Stamina", "PoiseLowRegenMult", "Poise < 25%: regeneracao (x)", "Poise < 25%: regen (x)", "Regeneracao de estamina com o poise abaixo de 25%.", "Stamina regen while poise is below 25%.", 0.0, 1.0, 0.05, 0.6)
+	AddSetting(5, 0, "Parry", "DefenderStaminaRecoverFraction", "Parry devolve estamina (fracao)", "Parry returns stamina (fraction)", "Fracao da estamina maxima devolvida num parry.", "Fraction of max stamina returned by a parry.", 0.0, 1.0, 0.05, 0.30)
+	AddSetting(9, 1, "Stamina", "ClassRegen", "Armadura abranda a regeneracao", "Armor slows regeneration", "Cada classe de armadura reduz a regeneracao de estamina.", "Each armor class reduces stamina regeneration.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(9, 0, "Stamina", "ClassRegenPenalty", "Penalidade por classe", "Penalty per class", "Fracao de regeneracao perdida por classe de armadura.", "Regeneration fraction lost per armor class.", 0.0, 0.3, 0.01, 0.08)
+	AddSetting(4, 0, "Exhaustion", "MaxSeconds", "Exaustao: duracao maxima (s)", "Exhaustion: maximum duration (s)", "A exaustao acaba aqui mesmo que a estamina nao chegue ao alvo.", "Exhaustion ends here even if stamina has not reached the target.", 2.0, 20.0, 0.5, 7.0)
+	AddSetting(4, 0, "Exhaustion", "TargetPercent", "Exaustao: estamina alvo (%)", "Exhaustion: target stamina (%)", "Depois do tempo minimo, a exaustao acaba quando a estamina chega a esta percentagem.", "After the minimum time, exhaustion ends when stamina reaches this percent.", 10.0, 100.0, 5.0, 35.0)
+	AddSetting(4, 0, "Exhaustion", "RegenFactor", "Exaustao: regeneracao (x)", "Exhaustion: regen (x)", "Multiplicador da regeneracao durante a exaustao.", "Regen multiplier while exhausted.", 0.0, 1.0, 0.05, 0.7)
+	AddSetting(17, 0, "StaggerLock", "SecondsNpc", "Staggerlock - NPC (s)", "Staggerlock - NPC (s)", "Segundos que um NPC fica preso apos o poise chegar a zero.", "Seconds an NPC stays locked after poise reaches zero.", 0.5, 8.0, 0.5, 3.0)
+	AddSetting(17, 0, "StaggerLock", "SecondsPlayer", "Staggerlock - jogador (s)", "Staggerlock - player (s)", "Segundos que o jogador fica preso apos o poise chegar a zero.", "Seconds the player stays locked after poise reaches zero.", 0.5, 8.0, 0.5, 2.0)
+	AddSetting(17, 0, "StaggerLock", "PostureMult", "Staggerlock: dano de postura (x)", "Staggerlock: posture damage (x)", "Multiplicador do dano de postura durante o staggerlock.", "Posture damage multiplier during staggerlock.", 1.0, 6.0, 0.25, 3.0)
+	AddSetting(17, 0, "Stagger", "LightCooldownPlayerMs", "Stagger leve - jogador: intervalo (ms)", "Light stagger - player: spacing (ms)", "Intervalo minimo entre staggers leves no jogador.", "Minimum spacing between light staggers on the player.", 300.0, 5000.0, 100.0, 1500.0)
+	AddSetting(18, 1, "NpcBlock", "GuardRules", "Regras de guarda dos NPC", "NPC guard rules", "NPC nao bloqueia preso, a sangrar, em stagger ou a atacar.", "NPCs cannot block while locked, bleeding, staggered or attacking.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(18, 0, "NpcBlock", "NoGuardAfterStaggerMs", "Sem guarda apos stagger (ms)", "No guard after stagger (ms)", "Tempo sem bloquear depois de um stagger.", "Time without blocking after a stagger.", 0.0, 3000.0, 100.0, 900.0)
+	AddSetting(18, 0, "NpcBlock", "BlockStartDelayMs", "Atraso para guardar (ms)", "Guard start delay (ms)", "Atraso antes de o NPC levantar a guarda.", "Delay before an NPC raises its guard.", 0.0, 2000.0, 50.0, 400.0)
+	AddSetting(18, 0, "NpcBlock", "AttackRecoverMs", "Sem guarda apos atacar (ms)", "No guard after attacking (ms)", "Tempo sem bloquear depois de um ataque do NPC.", "Time without blocking after an NPC attack.", 0.0, 2000.0, 50.0, 300.0)
+	AddSetting(19, 0, "Magic", "DeflectCostWeapon", "Deflexao: custo de magia - arma", "Deflect: magicka cost - weapon", "Magicka por ponto de dano defletido com arma.", "Magicka per point of damage deflected with a weapon.", 0.0, 2.0, 0.05, 0.6)
+	AddSetting(19, 0, "Magic", "DeflectCostShield", "Deflexao: custo de magia - escudo", "Deflect: magicka cost - shield", "Magicka por ponto de dano defletido com escudo.", "Magicka per point of damage deflected with a shield.", 0.0, 2.0, 0.05, 0.4)
+	AddSetting(19, 0, "Magic", "DeflectReturnWeapon", "Deflexao: devolvido - arma", "Deflect: returned - weapon", "Fracao do dano defletido devolvida ao atacante (arma).", "Fraction of deflected damage returned to the attacker (weapon).", 0.0, 2.0, 0.05, 0.7)
 EndFunction
+
+; ---------------- tabs / presets ----------------
+int Function TabOfBlk(int b)
+	if b == 11 || b == 14
+		return 0
+	elseif b == 4 || b == 5 || b == 8 || b == 9
+		return 1
+	elseif b == 1 || b == 2
+		return 2
+	elseif b == 7 || b == 12 || b == 17 || b == 18 || b == 19
+		return 3
+	endif
+	return 4
+EndFunction
+
+bool Function UsesPreset(int blk)
+	return blk != 10 && blk != 13 && TabOfBlk(blk) >= 1
+EndFunction
+
+bool Function TabManual(int tab)
+	return NahIDWinNative.IniGetF("Menu", "Mode" + tab, 0.0) > 0.5
+EndFunction
+
+int Function TabLevel(int tab)
+	return NahIDWinNative.IniGetF("Menu", "Level" + tab, 1.0) as int
+EndFunction
+
+string Function LevelName(int l)
+	if l <= 0
+		return Tr("Easy", "Facil")
+	elseif l == 1
+		return Tr("Normal (recommended)", "Normal (recomendado)")
+	endif
+	return "Hard"
+EndFunction
+
+string Function MKey(int i)
+	return sSec[i] + "_" + sKey[i]
+EndFunction
+
+float Function RowVal(int i)
+	float live = NahIDWinNative.IniGetF(sSec[i], sKey[i], sDef[i])
+	if UsesPreset(sBlk[i]) && TabManual(TabOfBlk(sBlk[i]))
+		return NahIDWinNative.IniGetF("Manual", MKey(i), live)
+	endif
+	return live
+EndFunction
+
+Function SetRow(int i, float v)
+	NahIDWinNative.IniSetF(sSec[i], sKey[i], v)
+	NahIDWinNative.IniSetF("Manual", MKey(i), v)
+EndFunction
+
+int pLvl = 1
+Function PV(string sec, string key, float e, float n, float h)
+	float v = n
+	if pLvl <= 0
+		v = e
+	elseif pLvl >= 2
+		v = h
+	endif
+	NahIDWinNative.IniSetF(sec, key, v)
+EndFunction
+
+; Preset tables: Easy / Normal / Hard. Hard = the values of v0.23.1.
+Function ApplyPreset(int tab, int lvl)
+	pLvl = lvl
+	if tab == 1
+		PV("Stamina", "SwingBase", 4.0, 5.0, 6.0)
+		PV("Stamina", "SwingPerWeight", 0.6, 0.75, 0.9)
+		PV("Stamina", "PowerMult", 1.8, 2.0, 2.2)
+		PV("Stamina", "BashWeightMult", 1.2, 1.35, 1.5)
+		PV("Stamina", "BlockCostFactor", 0.20, 0.28, 0.35)
+		PV("Stamina", "GuardBreakPosturePercent", 15.0, 20.0, 25.0)
+		PV("Stamina", "LowZoneRegenMult", 0.8, 0.7, 0.6)
+		PV("Stamina", "LowZonePoiseDamageMult", 1.1, 1.2, 1.25)
+		PV("Stamina", "PoiseMidRegenMult", 0.85, 0.8, 0.75)
+		PV("Stamina", "PoiseLowRegenMult", 0.7, 0.6, 0.5)
+		PV("Stamina", "ClassRegenPenalty", 0.05, 0.08, 0.10)
+		PV("Exhaustion", "Seconds", 1.5, 2.0, 2.0)
+		PV("Exhaustion", "MaxSeconds", 6.0, 7.0, 8.0)
+		PV("Exhaustion", "TargetPercent", 30.0, 35.0, 40.0)
+		PV("Exhaustion", "RegenFactor", 0.8, 0.7, 0.6)
+		PV("Parry", "DefenderStaminaRecoverFraction", 0.50, 0.30, 0.15)
+	elseif tab == 2
+		PV("Poise", "MaxScalePlayer", 6.0, 5.0, 4.5)
+		PV("Poise", "MaxScaleNPC", 7.0, 8.0, 9.0)
+		PV("Poise", "NPCTakenMult", 3.0, 2.75, 2.5)
+		PV("Poise", "PlayerTakenMult", 1.2, 1.35, 1.5)
+		PV("Poise", "RegenSeconds", 8.0, 9.0, 10.0)
+		PV("Poise", "RegenDelaySeconds", 2.0, 2.5, 3.0)
+		PV("Damage", "BlockedMult", 0.10, 0.12, 0.15)
+		PV("Posture", "ScalePlayer", 6.0, 5.5, 5.0)
+		PV("Posture", "ScaleNPC", 4.5, 4.75, 5.0)
+		PV("Posture", "BlockedMult", 0.09, 0.105, 0.12)
+		PV("Posture", "BleedOutSeconds", 5.0, 4.5, 4.0)
+		PV("Posture", "BleedOutImmuneSeconds", 4.0, 4.5, 5.0)
+	elseif tab == 3
+		PV("StaggerLock", "SecondsNpc", 4.0, 3.5, 3.0)
+		PV("StaggerLock", "SecondsPlayer", 1.5, 1.75, 2.0)
+		PV("StaggerLock", "PostureMult", 4.0, 3.5, 3.0)
+		PV("NpcBlock", "NoGuardAfterStaggerMs", 1200.0, 1050.0, 900.0)
+		PV("NpcBlock", "BlockStartDelayMs", 600.0, 500.0, 400.0)
+		PV("NpcBlock", "AttackRecoverMs", 450.0, 375.0, 300.0)
+		PV("Stagger", "PlayerImmuneAfterSeconds", 2.0, 1.75, 1.5)
+		PV("Stagger", "LightCooldownMs", 500.0, 600.0, 700.0)
+		PV("Stagger", "LightCooldownPlayerMs", 2200.0, 1800.0, 1500.0)
+		PV("Knockback", "Force", 0.8, 0.9, 1.0)
+		PV("Magic", "DeflectCostWeapon", 0.5, 0.55, 0.6)
+		PV("Magic", "DeflectCostShield", 0.3, 0.35, 0.4)
+		PV("Magic", "DeflectReturnWeapon", 0.9, 0.8, 0.7)
+		PV("Block", "AttackerStamina", 14.0, 12.0, 10.0)
+	elseif tab == 4
+		PV("Rage", "CooldownSeconds", 20.0, 25.0, 30.0)
+		PV("Rage", "LifeCostPercent", 15.0, 18.0, 20.0)
+		PV("Rage", "DurationSeconds", 6.0, 5.5, 5.0)
+		PV("Rage", "NPCChancePercent", 35.0, 45.0, 50.0)
+		PV("Rage", "NPCCooldownSeconds", 60.0, 52.0, 45.0)
+		PV("Rage", "NPCExtraReduction", 20.0, 25.0, 30.0)
+		PV("Rage", "NPCDamageBonus", 5.0, 8.0, 10.0)
+		PV("Supreme", "CooldownSeconds", 350.0, 425.0, 500.0)
+		PV("Supreme", "CostPercentPerSecond", 1.5, 2.0, 2.0)
+		PV("Supreme", "DurationSeconds", 8.0, 6.0, 5.0)
+		PV("Bosses", "PoiseMult", 1.2, 1.35, 1.5)
+		PV("Bosses", "PostureMult", 1.2, 1.35, 1.5)
+		PV("BigCreatures", "PoiseMult", 1.2, 1.35, 1.5)
+		PV("BigCreatures", "PostureMult", 1.2, 1.35, 1.5)
+		PV("Perilous", "ChancePercent", 15.0, 20.0, 25.0)
+		PV("Perilous", "ParryPosture", 0.6, 0.55, 0.5)
+	endif
+EndFunction
+
+; manual mode: copy the saved manual values of that tab to the live ini
+Function ApplyManual(int tab)
+	BuildTable(tab)
+	int i = 0
+	while i < count
+		if UsesPreset(sBlk[i])
+			float v = NahIDWinNative.IniGetF("Manual", MKey(i), -9999.0)
+			if v > -9998.0
+				NahIDWinNative.IniSetF(sSec[i], sKey[i], v)
+			endif
+		endif
+		i += 1
+	endWhile
+EndFunction
+
+; Effects are processed when the menu closes.
+Function ApplyAllTabs()
+	int t = 1
+	while t <= 4
+		if TabManual(t)
+			ApplyManual(t)
+		else
+			ApplyPreset(t, TabLevel(t))
+		endif
+		t += 1
+	endWhile
+	ApplyParryGlobal()
+EndFunction
+
+; Inpa's parry script restores BaseStamina x global, so the global must be a FRACTION (0.30), not a percent.
+Function ApplyParryGlobal()
+	GlobalVariable g = GetG(2)
+	if g
+		float pf = NahIDWinNative.IniGetF("Parry", "DefenderStaminaRecoverFraction", 0.30)
+		if Math.Abs(g.GetValue() - pf) > 0.001
+			g.SetValue(pf)
+			GlobalChanged(2, pf)
+		endif
+	endif
+EndFunction
+
+Event OnConfigClose()
+	ApplyAllTabs()
+EndEvent
+
+
 
 string Function FormatFor(int i)
 	if sStep[i] >= 1.0
@@ -795,7 +1003,7 @@ Function DrawBlock(int blk, string en, string pt)
 	int i = 0
 	while i < count
 		if sBlk[i] == blk && !hide
-			float cur = NahIDWinNative.IniGetF(sSec[i], sKey[i], sDef[i])
+			float cur = RowVal(i)
 			if sType[i] == 2
 				Track(AddMenuOption(LabelOf(i), IniChoiceName(sKey[i], cur as int), sFlag), 9, i)
 			elseif sType[i] == 1
@@ -818,7 +1026,17 @@ Event OnPageReset(string a_page)
 		return
 	endif
 	UnloadCustomContent()
-	BuildTable()
+	int pg = 0
+	if a_page == Pages[1]
+		pg = 1
+	elseif a_page == Pages[2]
+		pg = 2
+	elseif a_page == Pages[3]
+		pg = 3
+	elseif a_page == Pages[4]
+		pg = 4
+	endif
+	BuildTable(pg)
 	oKind = new int[128]
 	oRef = new int[128]
 	if ModOn()
@@ -827,26 +1045,45 @@ Event OnPageReset(string a_page)
 		sFlag = OPTION_FLAG_DISABLED
 	endif
 	SetCursorFillMode(TOP_TO_BOTTOM)
-	if a_page == Pages[0]
-		sPageNo = 0
+	sPageNo = pg
+	if pg == 0
 		DrawPage0()
-	elseif a_page == Pages[1]
-		sPageNo = 1
+	elseif pg == 1
 		DrawPage1()
-	else
-		sPageNo = 2
+	elseif pg == 2
 		DrawPage2()
+	elseif pg == 3
+		DrawPage3()
+	else
+		DrawPage4()
 	endif
 EndEvent
+
+; mode selector of a tab: returns true when the manual rows must be drawn
+bool Function DrawMode(int tab)
+	bool man = TabManual(tab)
+	Hdr("Mode", "Modo")
+	Track(AddToggleOption(Tr("Manual mode (off = preset)", "Modo manual (desligado = predefinido)"), man, sFlag), 11, tab)
+	int f = sFlag
+	if man
+		f = OPTION_FLAG_DISABLED
+	endif
+	Track(AddMenuOption(Tr("Preset", "Predefinido"), LevelName(TabLevel(tab)), f), 12, tab)
+	if !man
+		AddTextOption(Tr("Values are applied when the menu closes.", "Os valores sao aplicados ao fechar o menu."), "", OPTION_FLAG_DISABLED)
+	endif
+	return man
+EndFunction
 
 Function DrawPage0()
 	SetCursorPosition(0)
 	Track(AddToggleOption("<font color=\"#d9b111\">MOD On/Off</font>", ModOn(), 0), 1, 0)
 	int li = AddToggleOption(Tr("Language: Portugues (BR)", "Idioma: Portugues (BR)"), IsPT(), 0)
 	Track(li, 7, 0)
+	Hdr("Master preset", "Predefinido geral")
+	Track(AddMenuOption(Tr("Apply to all tabs", "Aplicar a todas as abas"), LevelName(NahIDWinNative.IniGetF("Menu", "Master", 1.0) as int), sFlag), 13, 0)
 	Hdr("Parry Setting", "Parry")
 	GSli(1, "Parry & Deflect Timer", "Janela de Parry e Deflexao")
-	GSli(2, "Stamina Recovery", "Recuperar Estamina no Parry")
 	GTog(3, "Magic Reflect", "Refletir Magia")
 	Hdr("Block Setting", "Bloqueio")
 	GTog(6, "Resist Melee Damage", "Resistir Dano Corpo a Corpo")
@@ -856,49 +1093,72 @@ Function DrawPage0()
 	int b = AddMenuOption(Tr("(beta) Sneak Execution", "(beta) Execucao Furtiva"), SneakName(GVal(20) as int), sFlag)
 	Track(b, 6, 20)
 	GSli(21, "Sneak Execution Damage Mult", "Dano da Execucao Furtiva")
-	Hdr("Bosses", "Bosses")
-	DrawBlock(16, "Bosses, giants and dragons", "Bosses, gigantes e dragoes")
-	SetCursorPosition(1)
-	DrawBlock(1, "Poise", "Poise")
-	DrawBlock(2, "Posture", "Postura")
-	DrawBlock(3, "Rage", "Furia")
-	DrawBlock(4, "Exhaustion", "Exaustao")
-EndFunction
-
-Function DrawPage1()
-	SetCursorPosition(0)
-	Hdr("Stamina Game Setting", "Estamina (Game Setting)")
-	GSli(22, "PowerAttack Cost Mult", "Custo do Golpe Forte (x)")
-	GSli(23, "Sprint Stamina Drain Base", "Gasto Base da Corrida")
-	GSli(24, "Sprint Stamina Drain Mult", "Gasto da Corrida por Peso")
-	GSli(25, "Combat Stamina Regen", "Regeneracao de Estamina em Combate")
-	GSli(26, "Stamina Regen Delay", "Pausa da Regeneracao de Estamina")
-	DrawBlock(5, "Stamina per Swing", "Estamina por Golpe")
-	Hdr("Resist Game Setting", "Resistencias (Game Setting)")
-	GSli(27, "Maximum Resistance", "Resistencia Maxima")
-	GSli(28, "Maximum Armor Resistance", "Resistencia Maxima da Armadura")
-	GSli(29, "Shield Block Base", "Base do Bloqueio com Escudo")
-	GSli(30, "Weapon Block Base", "Base do Bloqueio com Arma")
-	SetCursorPosition(1)
 	Hdr("Difficulty Game Setting", "Dificuldade (Game Setting)")
 	GTog(31, "Player Difficulty Change", "Mudar Dificuldade do Jogador")
 	GSliD(32, "Player taken damage mult", "Dano que o Jogador Recebe", GVal(31) > 0.5)
 	GTog(33, "NPC Difficulty Change", "Mudar Dificuldade dos NPCs")
 	GSliD(34, "NPC taken damage mult", "Dano que os NPCs Recebem", GVal(33) > 0.5)
-	DrawBlock(7, "Stagger and Knockback", "Stagger e Empurrao")
+	SetCursorPosition(1)
+	Hdr("Resist Game Setting", "Resistencias (Game Setting)")
+	GSli(27, "Maximum Resistance", "Resistencia Maxima")
+	GSli(28, "Maximum Armor Resistance", "Resistencia Maxima da Armadura")
+	GSli(29, "Shield Block Base", "Base do Bloqueio com Escudo")
+	GSli(30, "Weapon Block Base", "Base do Bloqueio com Arma")
+	DrawBlock(14, "Extra Lives and Execution", "Vidas extra e Execucao")
+	DrawBlock(11, "System", "Sistema")
+EndFunction
+
+Function DrawPage1()
+	SetCursorPosition(0)
+	if !DrawMode(1)
+		return
+	endif
+	DrawBlock(5, "Stamina", "Estamina")
+	DrawBlock(4, "Exhaustion", "Exaustao")
+	Hdr("Stamina Game Setting", "Estamina (Game Setting)")
+	GSli(23, "Sprint Stamina Drain Base", "Gasto Base da Corrida")
+	GSli(24, "Sprint Stamina Drain Mult", "Gasto da Corrida por Peso")
+	GSli(25, "Combat Stamina Regen", "Regeneracao de Estamina em Combate")
+	GSli(26, "Stamina Regen Delay", "Pausa da Regeneracao de Estamina")
+	SetCursorPosition(1)
+	DrawBlock(9, "Armor", "Armadura")
+	DrawBlock(8, "Stamina cost per weapon type", "Custo de estamina por tipo de arma")
 EndFunction
 
 Function DrawPage2()
 	SetCursorPosition(0)
-	DrawBlock(8, "Stamina cost per weapon type", "Custo de estamina por tipo de arma")
-	DrawBlock(9, "Armor", "Armadura")
+	if !DrawMode(2)
+		return
+	endif
+	DrawBlock(1, "Poise", "Poise")
 	SetCursorPosition(1)
-	DrawBlock(12, "Normal block (ours)", "Bloqueio normal (nosso)")
+	DrawBlock(2, "Posture", "Postura")
+EndFunction
+
+Function DrawPage3()
+	SetCursorPosition(0)
+	if !DrawMode(3)
+		return
+	endif
+	DrawBlock(7, "Stagger and Knockback", "Stagger e Empurrao")
+	DrawBlock(17, "Staggerlock", "Staggerlock")
+	SetCursorPosition(1)
+	DrawBlock(18, "NPC guard", "Guarda dos NPC")
+	DrawBlock(12, "Normal block", "Bloqueio normal")
+	DrawBlock(19, "Magic deflect", "Deflexao de magia")
+EndFunction
+
+Function DrawPage4()
+	SetCursorPosition(0)
+	bool man = DrawMode(4)
+	if man
+		DrawBlock(3, "Rage", "Furia")
+		DrawBlock(15, "Supreme Rage (fire aura)", "Supremo Rage (aura de fogo)")
+		DrawBlock(16, "Bosses, giants and perilous attacks", "Bosses, gigantes e ataques perigosos")
+	endif
+	SetCursorPosition(1)
 	DrawBlock(10, "HUD (TrueHUD bar)", "HUD (barra do TrueHUD)")
 	DrawBlock(13, "HUD (own bars)", "HUD (barras proprias)")
-	DrawBlock(14, "Extra Lives", "Vidas extra")
-	DrawBlock(15, "Supreme Rage (fire aura)", "Supremo Rage (aura de fogo)")
-	DrawBlock(11, "System", "Sistema")
 EndFunction
 
 ; ---------------- eventos ----------------
@@ -910,6 +1170,13 @@ Event OnOptionSelect(int a_option)
 		bool turnOn = !ModOn()
 		SetToggleOptionValue(a_option, turnOn)
 		SetModOn(turnOn)
+		ForcePageReset()
+	elseif k == 11
+		float mv = 1.0
+		if TabManual(r)
+			mv = 0.0
+		endif
+		NahIDWinNative.IniSetF("Menu", "Mode" + r, mv)
 		ForcePageReset()
 	elseif k == 7
 		float nv = 1.0
@@ -930,12 +1197,12 @@ Event OnOptionSelect(int a_option)
 		NahIDWinNative.IniSetF("MenuOpen", "B" + r, ov)
 		ForcePageReset()
 	elseif k == 2
-		float cur = NahIDWinNative.IniGetF(sSec[r], sKey[r], sDef[r])
+		float cur = RowVal(r)
 		float nv2 = 1.0
 		if cur > 0.5
 			nv2 = 0.0
 		endif
-		NahIDWinNative.IniSetF(sSec[r], sKey[r], nv2)
+		SetRow(r, nv2)
 		SetToggleOptionValue(a_option, nv2 > 0.5)
 		if sKey[r] == "Enabled"
 			ForcePageReset()
@@ -959,13 +1226,13 @@ Event OnOptionDefault(int a_option)
 	int k = oKind[slot]
 	int r = oRef[slot]
 	if k == 2
-		NahIDWinNative.IniSetF(sSec[r], sKey[r], sDef[r])
+		SetRow(r, sDef[r])
 		SetToggleOptionValue(a_option, sDef[r] > 0.5)
 	elseif k == 3
-		NahIDWinNative.IniSetF(sSec[r], sKey[r], sDef[r])
+		SetRow(r, sDef[r])
 		SetSliderOptionValue(a_option, sDef[r], FormatFor(r))
 	elseif k == 9
-		NahIDWinNative.IniSetF(sSec[r], sKey[r], sDef[r])
+		SetRow(r, sDef[r])
 		SetMenuOptionValue(a_option, IniChoiceName(sKey[r], sDef[r] as int))
 	elseif k == 5
 		GetG(r).SetValue(GDef(r))
@@ -979,7 +1246,7 @@ Event OnOptionSliderOpen(int a_option)
 	int k = oKind[slot]
 	int r = oRef[slot]
 	if k == 3
-		SetSliderDialogStartValue(NahIDWinNative.IniGetF(sSec[r], sKey[r], sDef[r]))
+		SetSliderDialogStartValue(RowVal(r))
 		SetSliderDialogDefaultValue(sDef[r])
 		SetSliderDialogRange(sMin[r], sMax[r])
 		SetSliderDialogInterval(sStep[r])
@@ -996,7 +1263,7 @@ Event OnOptionSliderAccept(int a_option, float a_value)
 	int k = oKind[slot]
 	int r = oRef[slot]
 	if k == 3
-		NahIDWinNative.IniSetF(sSec[r], sKey[r], a_value)
+		SetRow(r, a_value)
 		SetSliderOptionValue(a_option, a_value, FormatFor(r))
 	elseif k == 5
 		GetG(r).SetValue(a_value)
@@ -1008,6 +1275,20 @@ EndEvent
 Event OnOptionMenuOpen(int a_option)
 	int slot = a_option % 128
 	int r = oRef[slot]
+	if oKind[slot] == 12 || oKind[slot] == 13
+		string[] lv = new string[3]
+		lv[0] = LevelName(0)
+		lv[1] = LevelName(1)
+		lv[2] = LevelName(2)
+		SetMenuDialogOptions(lv)
+		if oKind[slot] == 12
+			SetMenuDialogStartIndex(TabLevel(r))
+		else
+			SetMenuDialogStartIndex(NahIDWinNative.IniGetF("Menu", "Master", 1.0) as int)
+		endif
+		SetMenuDialogDefaultIndex(1)
+		return
+	endif
 	if oKind[slot] == 9
 		int n = IniChoiceCount(sKey[r])
 		string[] opts9 = new string[3]
@@ -1020,7 +1301,7 @@ Event OnOptionMenuOpen(int a_option)
 			opts9[1] = IniChoiceName(sKey[r], 1)
 		endif
 		SetMenuDialogOptions(opts9)
-		SetMenuDialogStartIndex(NahIDWinNative.IniGetF(sSec[r], sKey[r], sDef[r]) as int)
+		SetMenuDialogStartIndex(RowVal(r) as int)
 		SetMenuDialogDefaultIndex(sDef[r] as int)
 		return
 	endif
@@ -1049,8 +1330,24 @@ EndEvent
 Event OnOptionMenuAccept(int a_option, int a_index)
 	int slot = a_option % 128
 	int r = oRef[slot]
+	if oKind[slot] == 12 && a_index >= 0
+		NahIDWinNative.IniSetF("Menu", "Level" + r, a_index as float)
+		SetMenuOptionValue(a_option, LevelName(a_index))
+		return
+	endif
+	if oKind[slot] == 13 && a_index >= 0
+		NahIDWinNative.IniSetF("Menu", "Master", a_index as float)
+		int t = 1
+		while t <= 4
+			NahIDWinNative.IniSetF("Menu", "Mode" + t, 0.0)
+			NahIDWinNative.IniSetF("Menu", "Level" + t, a_index as float)
+			t += 1
+		endWhile
+		SetMenuOptionValue(a_option, LevelName(a_index))
+		return
+	endif
 	if oKind[slot] == 9 && a_index >= 0
-		NahIDWinNative.IniSetF(sSec[r], sKey[r], a_index as float)
+		SetRow(r, a_index as float)
 		SetMenuOptionValue(a_option, IniChoiceName(sKey[r], a_index))
 		return
 	endif
@@ -1148,6 +1445,12 @@ Event OnOptionHighlight(int a_option)
 		SetInfoText(Tr("Turns Inpa Sekiro and NahIDWin on/off together. Do it out of combat.", "Liga/desliga o Inpa Sekiro e o NahIDWin em conjunto. Faz isto fora de combate."))
 	elseif k == 7
 		SetInfoText(Tr("Switch between English and Portugues (BR).", "Alterna entre English e Portugues (BR)."))
+	elseif k == 11
+		SetInfoText(Tr("Off: an Easy / Normal / Hard preset is used. On: you edit every value yourself (manual values are kept when you switch back).", "Desligado: usa um predefinido Facil / Normal / Hard. Ligado: editas cada valor (os valores manuais ficam guardados ao voltar)."))
+	elseif k == 12
+		SetInfoText(Tr("Easy = more slack. Normal = recommended. Hard = strictest. Applied when the menu closes.", "Facil = mais folga. Normal = recomendado. Hard = o mais duro. Aplicado ao fechar o menu."))
+	elseif k == 13
+		SetInfoText(Tr("Sets the Stamina, Poise & Posture, Stagger & Behaviors and Special tabs to this preset. Applied when the menu closes.", "Define as abas Estamina, Poise e Postura, Stagger e Behaviors e Especial para este predefinido. Aplicado ao fechar o menu."))
 	elseif k == 10
 		SetInfoText(Tr("Click to open or close this section.", "Clica para abrir ou fechar esta seccao."))
 	elseif k == 2 || k == 3 || k == 9

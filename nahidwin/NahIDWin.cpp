@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.23.1 (estamina: golpe forte detetado pelo gancho; custo por peso, bloqueio gasta estamina, guarda partida, exaustao dinamica; guarda dos NPC)"
+#define PLUGIN_VERSION_STR	"0.24.0 (menu with presets, non-blocking exhaustion, parry stamina cap)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -252,6 +252,7 @@ namespace
 		int		parryFx;				// faiscas e som (usa os do Inpa Sekiro se instalado)
 		int		parryNoDamage;			// 1 = o golpe aparado nao causa dano de vida (intercetado na funcao de dano do motor)
 		int		parryRequireHeld;		// 1 = a janela acaba quando largas o bloqueio
+		int		parryCapMs;				// window after a player parry in which stamina is capped at before+refund (0 = off)
 		float	parryDefStaminaRecover;	// fracao da estamina maxima que o defensor recupera
 		float	parryAttackerStamina;	// estamina que o atacante perde
 		int		parryFrontAngle;		// graus de cada lado em que o golpe conta
@@ -537,6 +538,7 @@ namespace
 		c.parryCooldownMs	= IniI("Parry", "CooldownMs", 200);
 		c.parryRequireHeld	= IniI("Parry", "RequireHeld", 1);
 		c.parryDefStaminaRecover = IniF("Parry", "DefenderStaminaRecoverFraction", 0.30f);
+		c.parryCapMs = IniI("Parry", "StaminaCapMs", 1500);
 		c.parryAttackerStamina = IniF("Parry", "AttackerStaminaDrain", 20.0f);
 		c.parryFrontAngle	= IniI("Parry", "FrontAngleDegrees", 100);
 		c.blockDrain		= IniI("Block", "DrainEnabled", 1);
@@ -2093,6 +2095,8 @@ namespace
 	}
 
 	bool NpcBlockInvalid(UInt32 id, DWORD now);
+	volatile DWORD g_parryCapUntil = 0;
+	float g_parryCapVal = 0.0f, g_parryBefore = 0.0f, g_parryCapMax = 0.0f, g_parryCapPeak = 0.0f;
 	Actor * ActorFromFormId(UInt32 id);
 	// ---- ataque perigoso (bosses e criaturas grandes): aviso, ignora o bloqueio; esquivar ou fazer parry
 	bool PerilousActive(UInt32 id, DWORD now)
@@ -2685,10 +2689,20 @@ namespace
 			InterlockedIncrement(&g_parries);
 			_MESSAGE("PARRY: %08X parried %08X", h.victim.id, h.attackerId);
 			if(g_cfg.parryFx) SendStaggerEvent(h.victimRef, h.attackerId, 6);
-			if(g_cfg.parryDefStaminaRecover > 0.0f)
 			{
 				float c = 0.0f, m = 0.0f;
-				if(ReadAV((Actor *)h.victimRef, 26, &c, &m) && m > 0.0f) RestoreAV((Actor *)h.victimRef, 26, m * g_cfg.parryDefStaminaRecover);
+				const bool okAV = ReadAV((Actor *)h.victimRef, 26, &c, &m) && m > 0.0f;
+				// In Inpa mode the Inpa script does the refund (its global is set from the ini); we only add our own refund otherwise.
+				const float refund = (g_cfg.inpaMode ? 0.0f : g_cfg.parryDefStaminaRecover);
+				if(okAV && refund > 0.0f) RestoreAV((Actor *)h.victimRef, 26, m * refund);
+				if(okAV && h.victim.id == 0x14 && g_cfg.parryCapMs > 0)
+				{
+					g_parryCapVal = c + m * g_cfg.parryDefStaminaRecover + m * 0.03f;
+					g_parryBefore = c;
+					g_parryCapMax = m;
+					g_parryCapPeak = c;
+					g_parryCapUntil = GetTickCount() + (DWORD)g_cfg.parryCapMs;
+				}
 			}
 			const int ak = ParryAttacker(h, now);
 			PerilousClear(h.attackerId);
@@ -3563,6 +3577,24 @@ namespace
 		if(g_cfg.diag && nl < 80) { InterlockedIncrement(&nl); _MESSAGE("npc swing: %08X weapon %.1f type %d -> %.1f stamina (%.0f -> %.0f)", id, w, t, take, c, c - take); }
 		if(c - take <= 0.5f) NpcExhaustNow(a, id, now);
 	}
+	Actor * ActorFromFormId(UInt32 id);
+	// After a player parry: stamina may not exceed before + refund (+3% regen allowance). Logs before/peak/after to find stray refunds.
+	void TickParryCap(DWORD now)
+	{
+		if(!g_parryCapUntil) return;
+		Actor * pl = ActorFromFormId(0x14);
+		if(!pl) { g_parryCapUntil = 0; return; }
+		float c = 0.0f, m = 0.0f;
+		if(!ReadAV(pl, 26, &c, &m)) return;
+		if(c > g_parryCapPeak) g_parryCapPeak = c;
+		if(c > g_parryCapVal) { RestoreAV(pl, 26, g_parryCapVal - c); c = g_parryCapVal; }
+		if((LONG)(now - g_parryCapUntil) >= 0)
+		{
+			_MESSAGE("PARRY STAMINA: before %.0f, peak %.0f, cap %.0f, after %.0f (max %.0f)", g_parryBefore, g_parryCapPeak, g_parryCapVal, c, g_parryCapMax);
+			g_parryCapUntil = 0;
+		}
+	}
+
 	void TickNpcSwings(DWORD now)
 	{
 		static DWORD last = 0;
@@ -4362,6 +4394,7 @@ namespace
 		TickSupreme(now);
 		TickLockJobs(now);
 		TickNpcSwings(now);
+		TickParryCap(now);
 		TickPerilous(now);
 		InpaCtlTick(now);
 		TickFleeWatch(now);

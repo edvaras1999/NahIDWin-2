@@ -50,10 +50,22 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	endif
 	speedCut = 0.0
 	exhaustedNow = false
+	NahIDWinNative.ExhaustEnded()
+	if NahIDWinNative.IniGetF("Exhaustion", "RepairSpeedOnLoad", 0.0) > 0.5
+		; one-shot repair: set SpeedMult back to its base value, then switch the option off
+		Actor plr = Game.GetPlayer()
+		float baseSp = plr.GetBaseActorValue("SpeedMult")
+		float curSp = plr.GetActorValue("SpeedMult")
+		if Math.Abs(curSp - baseSp) > 0.5
+			plr.ModActorValue("SpeedMult", baseSp - curSp)
+		endif
+		NahIDWinNative.IniSetF("Exhaustion", "RepairSpeedOnLoad", 0.0)
+		NahIDWinNative.Log("speed repaired " + curSp + " -> " + baseSp)
+	endif
 	lastRegen = -1.0
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.23.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.24.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -138,9 +150,10 @@ Event OnUpdate()
 		Game.GetPlayer().SetAnimationVariableBool("bNoStagger", false)
 		sNoStagger = false
 	endif
+	CheckExhaust()
 	ApplyRegen()
-	; ciclo leve: 0,5 s em combate, 2,5 s fora (menos carga no Papyrus)
-	if inCombatNow
+	; light loop: 0.5 s in combat or exhausted, 2.5 s otherwise
+	if inCombatNow || exhaustedNow
 		RegisterForSingleUpdate(0.5)
 	else
 		RegisterForSingleUpdate(2.5)
@@ -527,15 +540,16 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	ApplyRegen()
 EndEvent
 
-; Exaustao do jogador: sem atacar e sem regenerar estamina durante alguns segundos.
+; Exhaustion (player): no stamina regen for a few seconds, reduced move speed. Non-blocking: the end is checked from OnUpdate.
 Function DoExhaustPlayer()
 	Actor pl = Game.GetPlayer()
-	float secs = NahIDWinNative.GetExhaustSeconds()
 	if exhaustedNow
 		return
 	endif
 	exhaustedNow = true
-	; movimento reduzido (ini [Exhaustion] SpeedFactor, 0.5 = metade)
+	exhStart = Utility.GetCurrentRealTime()
+	exhMin = NahIDWinNative.GetExhaustSeconds()
+	exhMax = NahIDWinNative.GetExhaustMax()
 	float sf = NahIDWinNative.IniGetF("Exhaustion", "SpeedFactor", 0.5)
 	speedCut = 0.0
 	if sf >= 0.0 && sf < 1.0
@@ -544,22 +558,42 @@ Function DoExhaustPlayer()
 	endif
 	lastRegen = 0.0
 	pl.SetActorValue("StaminaRateMult", 0.0)
-	; sem bloquear os controlos de combate (isso fazia o jogo embainhar a arma): so deixa de regenerar estamina
-	NahIDWinNative.Log("exhaust player start " + secs)
+	NahIDWinNative.Log("exhaust player start " + exhMin)
 	if NahIDWinNative.GetLanguage() == 1
 		Debug.Notification("NAH-I-D-WIN: EXAUSTO!")
 	else
 		Debug.Notification("NAH-I-D-WIN: EXHAUSTED!")
 	endif
-	Utility.Wait(secs)
-	; exaustao dinamica: depois do tempo minimo dura ate a estamina chegar ao alvo (ou ao tempo maximo)
-	float maxS = NahIDWinNative.GetExhaustMax()
+	RegisterForSingleUpdate(0.5)
+EndFunction
+
+; Called every update while exhausted: ends it when min time passed and (max time reached or stamina >= target).
+Function CheckExhaust()
+	if !exhaustedNow
+		return
+	endif
+	Actor pl = Game.GetPlayer()
+	float el = Utility.GetCurrentRealTime() - exhStart
+	if el < 0.0
+		el = exhMax + 99.0
+	endif
 	float tgtP = NahIDWinNative.GetExhaustTarget()
-	float elapsed = secs
-	while elapsed < maxS && pl.GetActorValue("Stamina") < pl.GetActorValueMax("Stamina") * tgtP / 100.0
-		Utility.Wait(0.5)
-		elapsed += 0.5
-	endwhile
+	bool done = false
+	if el >= exhMin
+		if el >= exhMax || pl.GetActorValue("Stamina") >= pl.GetActorValueMax("Stamina") * tgtP / 100.0
+			done = true
+		endif
+	endif
+	if el >= exhMax + 4.0
+		done = true
+	endif
+	if done
+		EndExhaust()
+	endif
+EndFunction
+
+Function EndExhaust()
+	Actor pl = Game.GetPlayer()
 	NahIDWinNative.ExhaustEnded()
 	if speedCut > 0.0
 		pl.ModActorValue("SpeedMult", speedCut)
@@ -575,6 +609,9 @@ Function DoExhaustPlayer()
 	ApplyRegen()
 EndFunction
 
+float exhStart = 0.0
+float exhMin = 2.0
+float exhMax = 8.0
 bool exhaustedNow = false
 float speedCut = 0.0
 
