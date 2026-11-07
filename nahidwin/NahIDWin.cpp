@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.22.1 (stagger vanilla bloqueado; classe de armadura pelo peso; staggerlock com repeticao; guarda dos NPC)"
+#define PLUGIN_VERSION_STR	"0.22.2 (resistencia a 1 classe acima; escalao pelo poise antes do golpe; log do peso vestido)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -2323,7 +2323,10 @@ namespace
 		}
 		const int atkCls = AttackClass(h);
 		const int defCls = DefenseClass(h.victim, blocked);
-		const float cmult = powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)(atkCls - defCls));
+		// Resistencia: um ataque NORMAL de uma classe acima conta como da mesma classe; ataques pesados (golpe forte, bash, gigantes) nao tem esse desconto.
+		const bool heavyAtk = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0 || atkCls == 4;
+		const int diffEff = (atkCls > defCls && !heavyAtk) ? atkCls - defCls - 1 : atkCls - defCls;
+		const float cmult = powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)diffEff);
 		const float poiseDmg = (parry || immune) ? 0.0f : (blocked ? dmg * cmult * g_cfg.blockedMult : dmg * cmult);
 		float lowHp = 1.0f;
 		if(h.victim.hpMax > 0.0f)
@@ -2444,8 +2447,8 @@ namespace
 				else if(!blocked && g_cfg.lightEnabled && (h.victim.isPlayer ? g_cfg.lightPlayer : g_cfg.lightNpc))
 				{
 					// escalao do poise (depois do golpe) e diferenca de classe decidem o stagger
-					const float f2 = (mx > 0.0f) ? st.cur / mx : 1.0f;
-					const int d = atkCls - defCls;
+					const float f2 = (mx > 0.0f) ? before / mx : 1.0f;	// escalao pelo poise ANTES do golpe
+					const int d = diffEff;
 					int k = 0;
 					if(f2 > g_cfg.tierMid) { if(d >= 2) k = 2; else if(d == 1) k = 1; }
 					else if(f2 > g_cfg.tierLow) { if(d >= 1 && g_cfg.mediumOnPower) k = 2; else if(d >= 0) k = 1; }
@@ -3549,7 +3552,12 @@ namespace
 
 	// ------------------------------------------------------------------ funcoes nativas para o Papyrus
 	void N_SetLeftType(StaticFunctionTag *, SInt32 t) { g_leftType = t; }
-	void N_SetWornWeight(StaticFunctionTag *, float w) { g_wornWeight = w; }
+	void N_SetWornWeight(StaticFunctionTag *, float w)
+	{
+		const float old = g_wornWeight;
+		g_wornWeight = w;
+		if(old < 0.0f || w > old + 0.5f || w < old - 0.5f) _MESSAGE("worn armor weight (body+head+hands+feet) = %.1f -> player defense class %d (mid %.0f, heavy %.0f)", w, ArmorClass(0.0f, true), g_cfg.wornWeightMid, g_cfg.wornWeightHeavy);
+	}
 	void N_ScriptReady(StaticFunctionTag *)
 	{
 		InterlockedIncrement(&g_scriptReady);

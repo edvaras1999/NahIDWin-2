@@ -218,3 +218,8 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - **Classe de armadura do jogador pelo peso vestido** (corpo, cabeca, maos, pes; `[Classes] WornWeightMid/Heavy` = 8/28). Os NPC continuam pelo valor da armadura (`ArmorHeavy` desceu para 100).
 - **Staggerlock com repeticao**: o stagger pesado repete-se de 700 em 700 ms enquanto dura o lock e tenta de novo (150 ms, 3 vezes) se o jogo o recusar.
 - **Guarda dos NPC** (`[NpcBlock]`): sem `blockStart` em stagger/lock; um bloqueio ate 250 ms depois do `blockStart` conta como golpe sem bloqueio (poise, postura e stagger). O dano de vida continua reduzido pelo motor.
+
+## v0.22.2
+- **Resistencia a uma classe acima**: um ataque normal de classe superior conta como da mesma classe (menos dano de poise e sem stagger na primeira fase). Golpes fortes, bash e gigantes (classe 4) nao tem o desconto.
+- O escalao do stagger (>50%, 50-25%, <25%) passa a ser lido pelo poise **antes** do golpe.
+- Log `worn armor weight ... -> player defense class N`.
