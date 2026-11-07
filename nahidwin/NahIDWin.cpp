@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.22.0 (poise reformulado: classes 1-4, escaloes, staggerlock; deflect continuo com magia)"
+#define PLUGIN_VERSION_STR	"0.22.1 (stagger vanilla bloqueado; classe de armadura pelo peso; staggerlock com repeticao; guarda dos NPC)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -169,6 +169,8 @@ namespace
 		float	tierMid, tierLow, postureTierHigh, postureTierMid, postureTierLow;
 		float	lockSecondsNpc, lockSecondsPlayer, lockPostureMult, severePostureMult;
 		int		magicClass;
+		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
+		float	wornWeightMid, wornWeightHeavy;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -394,12 +396,21 @@ namespace
 		c.classPostureFloor = IniF("Classes", "PostureFloor", 0.5f);
 		c.classPoiseStep = IniF("Classes", "PoiseStepPerArmorClass", 0.35f);
 		c.armorClassMid	= IniF("Classes", "ArmorMid", 40.0f);
-		c.armorClassHeavy = IniF("Classes", "ArmorHeavy", 150.0f);
+		c.armorClassHeavy = IniF("Classes", "ArmorHeavy", 100.0f);
 		c.lightWeightMax = IniF("Classes", "LightWeaponMaxWeight", 8.0f);
 		c.midWeightMax	= IniF("Classes", "MediumWeaponMaxWeight", 16.0f);
 		c.creatureMidMass = IniF("Classes", "CreatureMediumMass", 0.9f);
 		c.creatureHeavyMass = IniF("Classes", "CreatureHeavyMass", 1.5f);
 		c.magicClass	= IniI("Classes", "MagicClass", 2);
+		c.wornWeightMid	= IniF("Classes", "WornWeightMid", 8.0f);
+		c.wornWeightHeavy = IniF("Classes", "WornWeightHeavy", 28.0f);
+		c.suppressVanilla = IniI("Stagger", "SuppressVanilla", 1);
+		c.npcGuardRules	= IniI("NpcBlock", "GuardRules", 1);
+		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
+		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 250);
+		c.lockRepeatMs	= IniI("StaggerLock", "RepeatMs", 700);
+		c.lockRetryMs	= IniI("StaggerLock", "RetryMs", 150);
+		c.lockMaxRetries = IniI("StaggerLock", "MaxRetries", 3);
 		c.tierMid		= IniF("Tiers", "MidFraction", 0.5f);
 		c.tierLow		= IniF("Tiers", "LowFraction", 0.25f);
 		c.postureTierHigh = IniF("Tiers", "PostureMultHigh", 0.25f);
@@ -677,6 +688,7 @@ namespace
 		DWORD	lastHit;
 		DWORD	lastTick;
 		DWORD	immuneUntil;	// (legado)
+		DWORD	staggerUntil;	// NPC em stagger do mod: sem guarda ate aqui
 		DWORD	lockUntil;		// staggerlock: poise a zero ate aqui; no fim o poise enche
 		float	pCur;			// postura atual (SOBE com os golpes; ao chegar a pMax: BleedOut)
 		float	pMax;
@@ -798,7 +810,7 @@ namespace
 				}
 			}
 			PoiseState s;
-			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0;
+			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.staggerUntil = 0;
 			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
@@ -874,9 +886,16 @@ namespace
 		}
 	}
 
-	// Classe de defesa por tipo/valor da armadura: 1 roupa/leve, 2 media, 3 pesada.
-	int ArmorClass(float armor)
+	volatile float g_wornWeight = -1.0f;	// peso das pecas vestidas pelo jogador (Papyrus); -1 = desconhecido
+	// Classe de defesa: 1 roupa, 2 armadura leve/media, 3 pesada. O jogador pelo peso vestido, os outros pelo valor da armadura.
+	int ArmorClass(float armor, bool isPlayer = false)
 	{
+		if(isPlayer && g_wornWeight >= 0.0f)
+		{
+			if(g_wornWeight >= g_cfg.wornWeightHeavy) return 3;
+			if(g_wornWeight >= g_cfg.wornWeightMid) return 2;
+			return 1;
+		}
 		if(armor >= g_cfg.armorClassHeavy) return 3;
 		if(armor >= g_cfg.armorClassMid) return 2;
 		return 1;
@@ -884,7 +903,7 @@ namespace
 	float ComputeMax(const ActorStats & s)
 	{
 		float m = s.mass * g_cfg.massMult + s.armor * g_cfg.armorFrac;
-		m *= 1.0f + (float)(ArmorClass(s.armor) - 1) * g_cfg.classPoiseStep;
+		m *= 1.0f + (float)(ArmorClass(s.armor, s.isPlayer) - 1) * g_cfg.classPoiseStep;
 		if(m < g_cfg.minPoise) m = g_cfg.minPoise;
 		m *= s.isPlayer ? g_cfg.poiseMaxScalePlayer : g_cfg.poiseMaxScaleNpc;
 		if(!s.isPlayer && s.boss) m *= g_cfg.bossPoiseMult;
@@ -1483,16 +1502,28 @@ namespace
 	}
 
 	// ------------------------------------------------------------------ stagger
-	void NativeStagger(TESObjectREFR * ref)
+	bool NativeStagger(TESObjectREFR * ref)
 	{
 		BSFixedString name(g_cfg.nativeEvent);
 		void * holder = (UInt8 *)ref + 0x20;	// sub-objeto IAnimationGraphManagerHolder do TESObjectREFR
 		void * fn = ReadVtblSlot(holder, g_cfg.nativeSlot);
-		if(!fn) { _MESSAGE("native stagger: could not read slot %d", g_cfg.nativeSlot); return; }
+		if(!fn) { _MESSAGE("native stagger: could not read slot %d", g_cfg.nativeSlot); return false; }
 		_MESSAGE("native stagger: calling slot %d (function %08X) on %08X with '%s'", g_cfg.nativeSlot, (unsigned)reinterpret_cast<UInt32>(fn), ref->formID, g_cfg.nativeEvent);
 		bool result = false;
 		const bool ok = CallNotify(holder, fn, &name, &result);
 		_MESSAGE("native stagger: %s (returned %d)", ok ? "call finished" : "CRASHED inside the call (caught)", result ? 1 : 0);
+		return ok && result;
+	}
+	// Staggerlock: o stagger pesado repete-se enquanto dura o lock, e repete-se logo se o grafo o recusar.
+	struct LockJob { DWORD nextAt; int fails; };
+	std::map<UInt32, LockJob> g_lockJobs;
+	void AddLockJob(UInt32 id, DWORD now, DWORD delay)
+	{
+		Lock();
+		std::map<UInt32, LockJob>::iterator it = g_lockJobs.find(id);
+		if(it == g_lockJobs.end()) { LockJob j; j.nextAt = now + delay; j.fails = 0; if(g_lockJobs.size() > 64) g_lockJobs.clear(); g_lockJobs[id] = j; }
+		else it->second.nextAt = now + delay;
+		Unlock();
 	}
 
 	// tier: 1 = stagger leve, 2 = medio, 3 = pesado (poise quebrou), 4 = BleedOut (postura quebrou)
@@ -1729,7 +1760,7 @@ namespace
 	{
 		if(blocking) return 4;
 		if(!s.isPlayer && s.mass >= g_cfg.kbGiantMass) return 4;
-		return ArmorClass(s.armor);
+		return ArmorClass(s.armor, s.isPlayer);
 	}
 
 	// Parry: o atacante (NPC) ganha postura e, se nao estiver imune, leva stagger (ou BleedOut se a postura quebrar).
@@ -1821,6 +1852,7 @@ namespace
 					}
 				}
 				Unlock();
+				if(kind == 3) AddLockJob(as.id, now, (DWORD)g_cfg.lockRepeatMs);
 				if(kind) { SendStaggerEvent((TESObjectREFR *)attacker, 0x14, kind); if(kind == 4) _MESSAGE("DEFLECT: posture break -> BLEEDOUT on %08X", as.id); else _MESSAGE("DEFLECT: poise/posture break -> heavy stagger on %08X", as.id); }
 			}
 		}
@@ -1962,6 +1994,7 @@ namespace
 		}
 	}
 
+	bool NpcBlockInvalid(UInt32 id, DWORD now);
 	Actor * ActorFromFormId(UInt32 id);
 	// ---- ataque perigoso (bosses e criaturas grandes): aviso, ignora o bloqueio; esquivar ou fazer parry
 	bool PerilousActive(UInt32 id, DWORD now)
@@ -2223,6 +2256,7 @@ namespace
 			}
 		}
 		InterlockedIncrement(&g_hits);
+		if(g_cfg.suppressVanilla || g_cfg.npcGuardRules) { EnsureNotifyHook(h.victimRef); if(h.attackerActor) EnsureNotifyHook((TESObjectREFR *)h.attackerActor); }
 		NoteCombatant(h.victimRef, h.victim.id);
 		if(h.attackerIsActor && h.attackerActor) NoteCombatant((TESObjectREFR *)h.attackerActor, h.attacker.id);
 
@@ -2233,7 +2267,13 @@ namespace
 		if(g_cfg.exhaustDmgMult > 1.0f && ExhaustedId(h.victim.id, now)) dmg *= g_cfg.exhaustDmgMult;
 		const bool perilHit = h.victim.isPlayer && h.attackerIsActor && h.sourceKind != 2 && PerilousActive(h.attackerId, now);
 		if(perilHit) dmg *= g_cfg.perilDmgMult;
-		const bool blocked = !perilHit && (h.flags & TESHitEvent::kFlag_Blocked) != 0;	// o ataque perigoso ignora o bloqueio
+		bool blocked = !perilHit && (h.flags & TESHitEvent::kFlag_Blocked) != 0;	// o ataque perigoso ignora o bloqueio
+		if(blocked && !h.victim.isPlayer && g_cfg.npcGuardRules && NpcBlockInvalid(h.victim.id, now))
+		{
+			blocked = false;	// guarda ainda nao levantada (ou em stagger): conta como golpe sem bloqueio para poise, postura e stagger
+			static volatile LONG ibLogged = 0;
+			if(g_cfg.diag && ibLogged < 60) { InterlockedIncrement(&ibLogged); _MESSAGE("NPC block ignored: %08X was staggered or had just raised its guard", h.victim.id); }
+		}
 		const bool heavyHit = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0;
 
 		bool parry = false, immune = false;
@@ -2417,6 +2457,7 @@ namespace
 					}
 				}
 			}
+			if(kind >= 1 && kind <= 3 && !h.victim.isPlayer) st.staggerUntil = now + (DWORD)g_cfg.staggerGuardMs;
 			// exaustao (estamina a zero): so se nada mais mais forte aconteceu neste golpe
 			if(exhaustCandidate && kind == 0 && !bleeding && !raging && !immune && now >= st.exhaustReadyAt)
 			{
@@ -2560,7 +2601,11 @@ namespace
 		{
 			if(kind == 7) _MESSAGE("EXHAUSTION: victim=%08X%s ran out of stamina", h.victim.id, h.victim.isPlayer ? "(player)" : "");
 			if(kind >= 3 && kind <= 5) _MESSAGE("%s: victim=%08X attacker=%08X (mode %d)", kind == 4 ? "POSTURE BREAK -> BLEEDOUT" : (kind == 5 ? "POISE BREAK -> heavy stagger + KNOCKBACK" : "POISE BREAK -> heavy stagger"), h.victim.id, h.attackerId, g_cfg.staggerMode);
-			if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7) NativeStagger(h.victimRef);
+			if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7)
+			{
+				const bool okS = NativeStagger(h.victimRef);
+				if(kind == 3 && (poiseBroke || !okS)) AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
+			}
 			else SendStaggerEvent(h.victimRef, h.attackerId, kind);
 			if(kind >= 3 && kind <= 5) HudFlash(h.victimRef);
 		}
@@ -2995,6 +3040,40 @@ namespace
 	struct BleedAcc { UInt32 id; DWORD tick; int ok; };
 	BleedAcc g_bleedAcc[8];
 	int g_bleedAccN = 0;
+	// NPC: ultimos blockStart vistos (para a carencia da guarda) e estado de stagger.
+	struct BlockSeen { UInt32 id; DWORD tick; };
+	BlockSeen g_npcBlock[16];
+	volatile LONG g_vanillaBlocked = 0, g_guardBlocked = 0;
+	bool NpcNoGuard(UInt32 id, DWORD now)
+	{
+		bool r = false;
+		Lock();
+		StateMap::iterator it = g_states.find(id);
+		if(it != g_states.end() && (now < it->second.lockUntil || now < it->second.bleedUntil || now < it->second.staggerUntil)) r = true;
+		Unlock();
+		return r;
+	}
+	void NoteNpcBlockStart(UInt32 id, DWORD now)
+	{
+		Lock();
+		int slot = 0;
+		for(int i = 0; i < 16; i++)
+		{
+			if(g_npcBlock[i].id == id) { slot = i; break; }
+			if(g_npcBlock[i].tick < g_npcBlock[slot].tick) slot = i;
+		}
+		g_npcBlock[slot].id = id; g_npcBlock[slot].tick = now;
+		Unlock();
+	}
+	bool NpcBlockInvalid(UInt32 id, DWORD now)
+	{
+		if(NpcNoGuard(id, now)) return true;
+		bool r = false;
+		Lock();
+		for(int i = 0; i < 16; i++) if(g_npcBlock[i].id == id && g_npcBlock[i].tick && now - g_npcBlock[i].tick < (DWORD)g_cfg.npcBlockDelayMs) r = true;
+		Unlock();
+		return r;
+	}
 	bool IsRagingId(UInt32 id)
 	{
 		const DWORD now = GetTickCount();
@@ -3058,9 +3137,34 @@ namespace
 				if(pid == 0x14) { InterlockedIncrement(&g_shieldBlocked); return true; }
 			}
 			if(g_ownNotify || !g_cfg.rageStaggerShield || !g_cfg.enabled) return false;
+			if(g_cfg.npcGuardRules && evn && evn->data && _stricmp(evn->data, "blockStart") == 0)
+			{
+				const UInt32 gid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
+				if(gid != 0x14 && gid != 0)
+				{
+					const DWORD gnow = GetTickCount();
+					if(NpcNoGuard(gid, gnow))
+					{
+						if(InterlockedIncrement(&g_guardBlocked) <= 40) _MESSAGE("NPC guard: %08X cannot block while staggered/locked", gid);
+						return true;
+					}
+					NoteNpcBlockStart(gid, gnow);
+				}
+				return false;
+			}
 			if((LONG)(GetTickCount() - g_ownAnimUntil) < 0) return false;
 			if(!evn || !IsHitReactionName(evn->data)) return false;
 			const UInt32 id = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);	// formID do ator (holder = ator + 0x20)
+			if(g_cfg.suppressVanilla && id != 0)
+			{
+				// so o mod decide o stagger: reacoes de golpe do jogo bloqueadas (o recuo do parry do Inpa passa)
+				if(!(id == g_parryAtkId && GetTickCount() - g_parryAtkTick < 1500))
+				{
+					if(InterlockedIncrement(&g_vanillaBlocked) <= 60) _MESSAGE("vanilla stagger blocked: %s on %08X", evn->data, id);
+					return true;
+				}
+				return false;
+			}
 			if(!IsRagingId(id)) return false;
 			InterlockedIncrement(&g_shieldBlocked);
 			return true;
@@ -3231,6 +3335,39 @@ namespace
 		{
 		}
 		return n;
+	}
+
+	Actor * ActorFromFormId(UInt32 id);
+	void TickLockJobs(DWORD now)
+	{
+		UInt32 ids[32]; int n = 0;
+		Lock();
+		for(std::map<UInt32, LockJob>::iterator it = g_lockJobs.begin(); it != g_lockJobs.end(); )
+		{
+			StateMap::iterator s = g_states.find(it->first);
+			const bool keep = (s != g_states.end()) && (LONG)(now - s->second.lockUntil) < 0 && now >= s->second.bleedUntil;
+			if(!keep) { g_lockJobs.erase(it++); continue; }
+			if((LONG)(now - it->second.nextAt) >= 0 && n < 32) ids[n++] = it->first;
+			++it;
+		}
+		Unlock();
+		for(int i = 0; i < n; i++)
+		{
+			Actor * a = ActorFromFormId(ids[i]);
+			bool ok = false, drop = false;
+			if(!a || Engine::LifeState(a) != 0) drop = true;
+			else ok = NativeStagger((TESObjectREFR *)a);
+			Lock();
+			std::map<UInt32, LockJob>::iterator it = g_lockJobs.find(ids[i]);
+			if(it != g_lockJobs.end())
+			{
+				if(drop) g_lockJobs.erase(it);
+				else if(ok) { it->second.fails = 0; it->second.nextAt = now + (DWORD)g_cfg.lockRepeatMs; }
+				else if(++it->second.fails > g_cfg.lockMaxRetries) g_lockJobs.erase(it);
+				else it->second.nextAt = now + (DWORD)g_cfg.lockRetryMs;
+			}
+			Unlock();
+		}
 	}
 
 	void TickSupreme(DWORD now)
@@ -3412,6 +3549,7 @@ namespace
 
 	// ------------------------------------------------------------------ funcoes nativas para o Papyrus
 	void N_SetLeftType(StaticFunctionTag *, SInt32 t) { g_leftType = t; }
+	void N_SetWornWeight(StaticFunctionTag *, float w) { g_wornWeight = w; }
 	void N_ScriptReady(StaticFunctionTag *)
 	{
 		InterlockedIncrement(&g_scriptReady);
@@ -3643,6 +3781,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("TryExhaust", "NahIDWinNative", N_TryExhaust, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("PowerStart", "NahIDWinNative", N_PowerStart, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, float>("SetWornWeight", "NahIDWinNative", N_SetWornWeight, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("SetLeftType", "NahIDWinNative", N_SetLeftType, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, BSFixedString>("Log", "NahIDWinNative", N_Log, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, SInt32>("GetLanguage", "NahIDWinNative", N_GetLanguage, registry));
@@ -3897,6 +4036,7 @@ namespace
 		PutBool(o, "ready", ready);
 		if(!ready) return;
 		TickSupreme(now);
+		TickLockJobs(now);
 		TickPerilous(now);
 		InpaCtlTick(now);
 		TickFleeWatch(now);

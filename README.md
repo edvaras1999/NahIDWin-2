@@ -212,3 +212,9 @@ seguem o mod "SGC Stagger on hit". Referencias: doodlum "Poise" (SE) e a API do 
 - **Staggerlock** (`[StaggerLock]`): poise a 0 = stagger pesado 3 s (NPC) / 2 s (jogador); cada golpe nesse periodo repete o stagger pesado e a postura leva x3; no fim o poise enche. Regeneracao: 3 s de espera, 10 s para encher.
 - **Deflect continuo**: segurando o bloqueio com magicka, toda a magia (tambem continua) e desviada sem dano. Custo 0,6 (arma) / 0,4 (escudo) de magicka por ponto de dano; devolve 70% (arma) / 100% (escudo) a vida, poise e postura de quem lancou. Sem magicka volta ao bloqueio normal. `[Magic] Deflect*`.
 - Log do `PLAYER-ANIM-EVENT` mostra o `tid` (thread) para estudar a dupla reacao do parry; o log de golpes mostra `class atacante>defesa`.
+
+## v0.22.1 - stagger so do mod
+- **Stagger vanilla bloqueado** (`[Stagger] SuppressVanilla=1`): o gancho dos eventos de animacao descarta os `stagger*`/`recoil*` do proprio jogo em todos os atores (o recuo do parry do Inpa e as animacoes do mod passam). O gancho passa a instalar-se logo no primeiro golpe. O log mostra `vanilla stagger blocked`.
+- **Classe de armadura do jogador pelo peso vestido** (corpo, cabeca, maos, pes; `[Classes] WornWeightMid/Heavy` = 8/28). Os NPC continuam pelo valor da armadura (`ArmorHeavy` desceu para 100).
+- **Staggerlock com repeticao**: o stagger pesado repete-se de 700 em 700 ms enquanto dura o lock e tenta de novo (150 ms, 3 vezes) se o jogo o recusar.
+- **Guarda dos NPC** (`[NpcBlock]`): sem `blockStart` em stagger/lock; um bloqueio ate 250 ms depois do `blockStart` conta como golpe sem bloqueio (poise, postura e stagger). O dano de vida continua reduzido pelo motor.

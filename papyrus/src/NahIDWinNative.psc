@@ -24,6 +24,8 @@ float Function GetRegenPercent() global native
 float Function GetCombatRegen(bool inCombat) global native
 ; Tipo do item da mao esquerda do jogador (10 = escudo): o deflect de magia gasta menos magicka e devolve mais com escudo.
 Function SetLeftType(int t) global native
+; Peso das pecas de armadura vestidas pelo jogador (define a classe de defesa 1-3).
+Function SetWornWeight(float w) global native
 
 ; Exaustao (estamina a zero): duracao em segundos e pedido de entrada (false = em recarga).
 float Function GetExhaustSeconds() global native
