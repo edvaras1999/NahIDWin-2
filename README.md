@@ -28,7 +28,7 @@ Max poise grows with mass and armor class.
 
 **Magic deflect.** After parrying a spell, holding block returns the spell. It costs magicka per point of damage and returns part of the damage as health, poise and posture damage to the caster.
 
-**NPC guard.** NPCs cannot block while stagger-locked, bleeding out, staggered or attacking, and raise their guard with a delay after a stagger or an attack.
+**NPC guard.** NPCs cannot block while stagger-locked, bleeding out, staggered, exhausted, attacking, or below a stamina threshold (15% by default), and raise their guard with a delay after a stagger or an attack. A guard held longer than a limit (6 s) is cut with a `blockStop`, and the game's block time settings (`fCombatBlockTimeMin/Mid/Max`) are set from the INI, which prevents endless blocking.
 
 **Rage / Supreme Rage.** Rage (G) trades health for damage reduction, damage bonus and stagger immunity. NPCs use it when posture is high and poise low. Supreme Rage (H) adds a fire aura with a long cooldown.
 
@@ -73,10 +73,14 @@ Five tabs: **General & System**, **Stamina**, **Poise & Posture**, **Stagger & B
 - Changes are applied when the menu closes. In Special & HUD, presets only cover the Special part (rage, supreme, bosses, perilous); the HUD is always manual.
 - General & System also holds the Inpa options (parry timer, magic reflect, melee resist, execution, difficulty, resistances), extra lives and the on/off switch for the whole mod.
 
+## Recommended: Scriptfree Behavior Staggerlock (Nemesis)
+
+The staggerlock repeats the stagger animation while the lock lasts. The base game ignores `staggerStart` while an actor is already staggering, so install the Nemesis patch **Scriptfree Behavior Staggerlock** (distar, Nexus Skyrim LE mod 101719) and run Nemesis. It is not included in this package.
+
 ## Troubleshooting
 
 - Movement speed stuck low: set `[Exhaustion] RepairSpeedOnLoad=1`, load a save; the speed is reset once and the key returns to 0. Console alternative: `player.getav speedmult`, then `player.modav speedmult <missing amount>`.
 
 ## License
 
-GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from SoftTarget LE. Stagger spell records follow "SGC Stagger on hit". References: doodlum "Poise" (SE), TrueHUD LE API (Mhacks79, based on Ersh's TrueHUD).
+GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / SoftTarget LE. Stagger spell records follow "SGC Stagger on hit". References: doodlum "Poise" (SE), TrueHUD LE API (Mhacks79, based on Ersh's TrueHUD).
