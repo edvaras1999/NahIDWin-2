@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.25.0 (NPC guard: stamina floor, block time, held-guard watchdog)"
+#define PLUGIN_VERSION_STR	"0.26.0 (NPC percent stamina costs, NPC block rework, guard cooldown)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -170,6 +170,9 @@ namespace
 		float	lockSecondsNpc, lockSecondsPlayer, lockPostureMult, severePostureMult;
 		int		magicClass;
 		int		attackRecoverMs;
+		float	npcBlockedMult, npcPostureBlockedMult;	// blocked hit on an NPC: poise / posture factor
+		float	npcSwingPct, npcBlockPct;				// NPC stamina costs as percent of its max stamina (0 = old absolute costs)
+		int		npcBlockCooldownMs;						// no guard for this long after an NPC lowers it
 		int		npcBlockHoldMs;		// an NPC holding its guard longer than this gets a blockStop (0 = off)
 		float	npcNoBlockStamPct;	// NPC below this stamina percent cannot raise its guard (0 = off)
 		// v0.23 estamina
@@ -439,7 +442,12 @@ namespace
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
 		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 400);
 		c.attackRecoverMs = IniI("NpcBlock", "AttackRecoverMs", 300);
-		c.npcBlockHoldMs = IniI("NpcBlock", "MaxBlockHoldMs", 6000);
+		c.npcBlockHoldMs = IniI("NpcBlock", "MaxBlockHoldMs", 3000);
+		c.npcBlockCooldownMs = IniI("NpcBlock", "BlockCooldownMs", 1200);
+		c.npcBlockedMult = IniF("Damage", "BlockedMultNpc", 0.30f);
+		c.npcPostureBlockedMult = IniF("Posture", "BlockedMultNpc", 0.40f);
+		c.npcSwingPct = IniF("NpcStamina", "SwingPercent", 4.5f);
+		c.npcBlockPct = IniF("NpcStamina", "BlockPercent", 14.0f);
 		c.npcNoBlockStamPct = IniF("NpcBlock", "NoBlockBelowStaminaPercent", 15.0f);
 		c.lockRepeatMs	= IniI("StaggerLock", "RepeatMs", 700);
 		c.lockRetryMs	= IniI("StaggerLock", "RetryMs", 150);
@@ -1807,7 +1815,7 @@ namespace
 	// Defesa: bloqueio ativo ou gigante = classe 4; senao pela armadura.
 	int DefenseClass(const ActorStats & s, bool blocking)
 	{
-		if(blocking) return 4;
+		if(blocking && s.isPlayer) return 4;
 		if(!s.isPlayer && s.mass >= g_cfg.kbGiantMass) return 4;
 		return ArmorClass(s.armor, s.isPlayer);
 	}
@@ -2034,9 +2042,11 @@ namespace
 		if(diff > 0 && !heavyAtk) diff--;
 		float cost = dmg * g_cfg.blockStamFactor * powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)diff);
 		if(h.victim.isPlayer && g_leftType == 10) cost *= g_cfg.blockStamShield;
-		if(!(cost > 0.0f)) return;
 		float c = 0.0f, m = 0.0f;
 		if(!ReadAV(va, 26, &c, &m) || m <= 0.0f) return;
+		// NPCs pay a percentage of their own max stamina, so a big stamina pool does not make blocking free
+		if(!h.victim.isPlayer && g_cfg.npcBlockPct > 0.0f) cost = m * g_cfg.npcBlockPct / 100.0f * powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)diff);
+		if(!(cost > 0.0f)) return;
 		const float floorV = (!h.victim.isPlayer && g_cfg.npcStamFloorPct > 0.0f) ? m * g_cfg.npcStamFloorPct / 100.0f : 0.0f;
 		float avail = c - floorV;
 		if(avail < 0.0f) avail = 0.0f;
@@ -2465,7 +2475,7 @@ namespace
 		const bool heavyAtk = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0 || atkCls == 4;
 		const int diffEff = (atkCls > defCls && !heavyAtk) ? atkCls - defCls - 1 : atkCls - defCls;
 		const float cmult = powf(g_cfg.classDiffBase > 1.0f ? g_cfg.classDiffBase : 1.0f, (float)diffEff);
-		const float poiseDmg = (parry || immune) ? 0.0f : (blocked ? dmg * cmult * g_cfg.blockedMult : dmg * cmult);
+		const float poiseDmg = (parry || immune) ? 0.0f : (blocked ? dmg * cmult * (h.victim.isPlayer ? g_cfg.blockedMult : g_cfg.npcBlockedMult) : dmg * cmult);
 		float lowHp = 1.0f;
 		if(h.victim.hpMax > 0.0f)
 		{
@@ -2475,7 +2485,7 @@ namespace
 			lowHp = 1.0f + g_cfg.postureLowHealthBonus * (1.0f - frac);
 		}
 		const float pcm = (cmult < g_cfg.classPostureFloor ? g_cfg.classPostureFloor : cmult) * ((atkCls == 4) ? g_cfg.severePostureMult : 1.0f);
-		const float postureBase = (parry || immune) ? 0.0f : dmg * pcm * g_cfg.postureDamageMult * lowHp * (blocked ? g_cfg.postureBlockedMult : 1.0f);
+		const float postureBase = (parry || immune) ? 0.0f : dmg * pcm * g_cfg.postureDamageMult * lowHp * (blocked ? (h.victim.isPlayer ? g_cfg.postureBlockedMult : g_cfg.npcPostureBlockedMult) : 1.0f);
 		float postureDmg = postureBase;
 
 		// exaustao: a vitima ficou sem estamina?
@@ -3201,7 +3211,8 @@ namespace
 	volatile LONG g_vanillaBlocked = 0, g_guardBlocked = 0;
 	bool NpcAttackBusy(UInt32 id, DWORD now);
 	std::map<UInt32, bool> g_npcLowStam;		// NPCs under the stamina threshold (kept by TickNpcSwings)
-	std::map<UInt32, DWORD> g_npcBlockSince;	// NPC guard start (cleared on blockStop)
+	std::map<UInt32, DWORD> g_npcBlockSince;
+	std::map<UInt32, DWORD> g_npcBlockEnd;		// when the NPC lowered its guard	// NPC guard start (cleared on blockStop)
 	bool NpcNoGuard(UInt32 id, DWORD now)
 	{
 		bool r = NpcAttackBusy(id, now);
@@ -3211,6 +3222,8 @@ namespace
 		{
 			std::map<UInt32, bool>::iterator ls = g_npcLowStam.find(id);
 			if(ls != g_npcLowStam.end() && ls->second) r = true;
+			std::map<UInt32, DWORD>::iterator be = g_npcBlockEnd.find(id);
+			if(be != g_npcBlockEnd.end() && now - be->second < (DWORD)g_cfg.npcBlockCooldownMs) r = true;
 		}
 		Unlock();
 		return r;
@@ -3320,7 +3333,7 @@ namespace
 			if(g_cfg.npcGuardRules && evn && evn->data && _stricmp(evn->data, "blockStop") == 0)
 			{
 				const UInt32 sid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
-				if(sid != 0x14 && sid != 0) { Lock(); g_npcBlockSince.erase(sid); Unlock(); }
+				if(sid != 0x14 && sid != 0) { Lock(); g_npcBlockSince.erase(sid); if(g_npcBlockEnd.size() > 300) g_npcBlockEnd.clear(); g_npcBlockEnd[sid] = GetTickCount(); Unlock(); }
 				return false;
 			}
 			if(g_cfg.npcGuardRules && evn && evn->data && _stricmp(evn->data, "blockStart") == 0)
@@ -3597,6 +3610,12 @@ namespace
 		if(!(cost > 0.0f)) return;
 		float c = 0.0f, m = 0.0f;
 		if(!ReadAV(a, 26, &c, &m) || m <= 0.0f) return;
+		// percent of max stamina for a reference swing (weight 10, type multiplier 1), scaled by the weapon like the player's cost
+		if(g_cfg.npcSwingPct > 0.0f)
+		{
+			const float ref = WeightCost(10.0f);
+			if(ref > 0.0f) cost = m * g_cfg.npcSwingPct / 100.0f * (cost / ref);
+		}
 		const float floorV = (g_cfg.npcStamFloorPct > 0.0f) ? m * g_cfg.npcStamFloorPct / 100.0f : 0.0f;
 		float avail = c - floorV;
 		if(avail < 0.0f) avail = 0.0f;
@@ -3658,7 +3677,7 @@ namespace
 				Lock();
 				for(std::map<UInt32, DWORD>::iterator it = g_npcBlockSince.begin(); it != g_npcBlockSince.end() && ns < 16; )
 				{
-					if(now - it->second > (DWORD)g_cfg.npcBlockHoldMs) { stuck[ns++] = it->first; g_npcBlockSince.erase(it++); }
+					if(now - it->second > (DWORD)g_cfg.npcBlockHoldMs) { stuck[ns++] = it->first; g_npcBlockEnd[it->first] = now; g_npcBlockSince.erase(it++); }
 					else ++it;
 				}
 				Unlock();

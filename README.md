@@ -28,7 +28,9 @@ Max poise grows with mass and armor class.
 
 **Magic deflect.** After parrying a spell, holding block returns the spell. It costs magicka per point of damage and returns part of the damage as health, poise and posture damage to the caster.
 
-**NPC guard.** NPCs cannot block while stagger-locked, bleeding out, staggered, exhausted, attacking, or below a stamina threshold (15% by default), and raise their guard with a delay after a stagger or an attack. A guard held longer than a limit (6 s) is cut with a `blockStop`, and the game's block time settings (`fCombatBlockTimeMin/Mid/Max`) are set from the INI, which prevents endless blocking.
+**Blocking.** A blocked hit on the player counts as defense class 4 and a fraction of the poise/posture damage (0.12 / 0.105). A blocked hit on an NPC keeps the NPC's armor class and does 0.30 poise / 0.40 posture damage (Normal), so guards break. Only a parry counts as class 4 against an NPC.
+
+**NPC guard.** NPCs cannot block while stagger-locked, bleeding out, staggered, exhausted, attacking, or below a stamina threshold (15% by default), and raise their guard with a delay after a stagger or an attack. A guard held longer than a limit (3 s) is cut with a `blockStop` followed by a short pause without guard, and the game's block time settings (`fCombatBlockTimeMin/Mid/Max`) are set from the INI, which prevents endless blocking.
 
 **Rage / Supreme Rage.** Rage (G) trades health for damage reduction, damage bonus and stagger immunity. NPCs use it when posture is high and poise low. Supreme Rage (H) adds a fire aura with a long cooldown.
 
@@ -41,7 +43,8 @@ Max poise grows with mass and armor class.
 Stamina is linked to poise and posture.
 
 - **Swing cost** (paid when the weapon swings, hit or miss): `(base + weapon weight x per-weight) x weapon type multiplier`. Power attacks multiply the cost; a shield bash uses the shield weight. The game's own attack and block costs are zeroed. NPCs pay the same.
-- **Block cost:** `damage x factor x 1.5^(attack class - armor class)`, shield x0.6. Stamina at 0 while blocking = guard break: poise 0, staggerlock, posture +%.
+- **NPC costs are a percentage of the NPC's own max stamina**, so a huge stamina pool does not make NPCs tireless: a reference swing costs 6 / 4.5 / 3 % (Easy / Normal / Hard) and scales with weapon weight and power attacks; a blocked hit costs 20 / 14 / 10 %, x1.5 per class the attack is above the NPC's armor. The player keeps the weight-based formulas below.
+- **Block cost (player):** `damage x factor x 1.5^(attack class - armor class)`, shield x0.6. Stamina at 0 while blocking = guard break: poise 0, staggerlock, posture +%.
 - **Low stamina zone** (below 25%): slower regen and more poise damage taken.
 - **Poise-linked regen:** poise below 50% / 25% slows stamina regen; during staggerlock there is none.
 - **Armor class** slows regen per class above 1.

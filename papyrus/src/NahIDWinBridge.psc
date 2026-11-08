@@ -42,7 +42,7 @@ Function LateInit()
 	ZeroVanillaCosts()
 	Game.SetGameSettingFloat("fCombatBlockChanceMin", NahIDWinNative.IniGetF("NpcBlock", "ChanceMin", 0.3))
 	SetBlockTimes()
-	NahIDWinNative.Log("bridge 0.25.0: late init pass " + sInitStage)
+	NahIDWinNative.Log("bridge 0.26.0: late init pass " + sInitStage)
 EndFunction
 
 ; A DLL avisa quando um save e carregado: os registos de animacao perdem-se, entao registamos de novo.
@@ -81,7 +81,7 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	sInitStage = 2
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.25.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.26.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -89,9 +89,9 @@ EndFunction
 
 ; NPC guard time limits (game settings are not saved, so they are set on every load)
 Function SetBlockTimes()
-	Game.SetGameSettingFloat("fCombatBlockTimeMin", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMin", 1.5))
-	Game.SetGameSettingFloat("fCombatBlockTimeMid", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMid", 2.5))
-	Game.SetGameSettingFloat("fCombatBlockTimeMax", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMax", 5.0))
+	Game.SetGameSettingFloat("fCombatBlockTimeMin", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMin", 1.0))
+	Game.SetGameSettingFloat("fCombatBlockTimeMid", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMid", 1.5))
+	Game.SetGameSettingFloat("fCombatBlockTimeMax", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMax", 3.0))
 EndFunction
 
 Function ApplyNpcBlock()
@@ -492,30 +492,37 @@ EndFunction
 ; Regeneracao de estamina do jogador conforme a armadura (100 = normal).
 float lastRegen = -1.0
 bool inCombatNow = false
+int wwTick = 0
+
 Function ApplyRegen()
 	Actor pl = Game.GetPlayer()
 	inCombatNow = pl.IsInCombat()
 	NahIDWinNative.SetLeftType(pl.GetEquippedItemType(0))
-	float ww = 0.0
-	int slotMasks = 0
-	Form wf
-	wf = pl.GetWornForm(4)
-	if wf
-		ww += wf.GetWeight()
+	; worn weight changes rarely: scan the armor slots every 4th pass only (less Papyrus load)
+	wwTick += 1
+	if wwTick >= 4 || lastRegen < 0.0
+		wwTick = 0
+		float ww = 0.0
+		int slotMasks = 0
+		Form wf
+		wf = pl.GetWornForm(4)
+		if wf
+			ww += wf.GetWeight()
+		endif
+		wf = pl.GetWornForm(1)
+		if wf
+			ww += wf.GetWeight()
+		endif
+		wf = pl.GetWornForm(8)
+		if wf
+			ww += wf.GetWeight()
+		endif
+		wf = pl.GetWornForm(128)
+		if wf
+			ww += wf.GetWeight()
+		endif
+		NahIDWinNative.SetWornWeight(ww)
 	endif
-	wf = pl.GetWornForm(1)
-	if wf
-		ww += wf.GetWeight()
-	endif
-	wf = pl.GetWornForm(8)
-	if wf
-		ww += wf.GetWeight()
-	endif
-	wf = pl.GetWornForm(128)
-	if wf
-		ww += wf.GetWeight()
-	endif
-	NahIDWinNative.SetWornWeight(ww)
 	float r = NahIDWinNative.GetCombatRegen(inCombatNow)
 	if r >= 0.0 && Math.Abs(r - lastRegen) > 1.0
 		lastRegen = r
