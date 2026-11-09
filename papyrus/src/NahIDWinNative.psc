@@ -20,6 +20,7 @@ float Function GetSwingCost(int mode, int rightType, float weight) global native
 float Function GetExhaustMax() global native
 float Function GetExhaustTarget() global native
 Function ExhaustEnded() global native
+Function SelfPoise(bool heavy) global native
 float Function GetKnockbackForce() global native
 
 ; Armadura abranda a regeneracao de estamina: percentagem (100 = normal). Devolve -1 se estiver desligado (nao mexer).

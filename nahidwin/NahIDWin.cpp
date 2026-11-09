@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.24.3 (NPCs vanilla reactions, exhaustion rework, player stagger without knockdown)"
+#define PLUGIN_VERSION_STR	"0.24.4 (exhaustion: less damage, self poise loss; broken posture state)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -178,6 +178,7 @@ namespace
 		float	npcBlockedMult, npcPostureBlockedMult, npcSwingPct, npcBlockPct;
 		float	levelPoise, atkLevelDmg, playerStaggerFloor, creatureDmgMult, giantDmgMult, exhaustBlockMult;
 		int		exhaustBlockActions;
+		float	exhAtkDmgMult, exhAtkPoiseMult, selfPoiseLight, selfPoiseHeavy, brokenSeconds, brokenDmgMult;
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
@@ -423,7 +424,7 @@ namespace
 		c.zeroVanilla	= IniI("Stamina", "ZeroVanillaCosts", 1);
 		c.blockStamFactor = IniF("Stamina", "BlockCostFactor", 0.35f);
 		c.blockStamShield = IniF("Stamina", "BlockCostShieldMult", 0.6f);
-		c.guardBreakPosture = IniF("Stamina", "GuardBreakPosturePercent", 25.0f);
+		c.guardBreakPosture = IniF("Stamina", "GuardBreakPosturePercent", 0.0f);
 		c.lowStamZone	= IniF("Stamina", "LowZoneFraction", 0.25f);
 		c.lowStamRegen	= IniF("Stamina", "LowZoneRegenMult", 0.6f);
 		c.lowStamPoise	= IniF("Stamina", "LowZonePoiseDamageMult", 1.25f);
@@ -450,6 +451,12 @@ namespace
 		c.giantDmgMult	= IniF("Damage", "GiantDamageMult", 0.40f);
 		c.exhaustBlockMult = IniF("Exhaustion", "BlockedDamageMult", 1.8f);
 		c.exhaustBlockActions = IniI("Exhaustion", "BlockActions", 0);
+		c.exhAtkDmgMult	= IniF("Exhaustion", "AttackDamageMult", 0.4f);
+		c.exhAtkPoiseMult = IniF("Exhaustion", "AttackPoiseMult", 0.5f);
+		c.selfPoiseLight = IniF("Exhaustion", "SelfPoiseLightPercent", 10.0f);
+		c.selfPoiseHeavy = IniF("Exhaustion", "SelfPoiseHeavyPercent", 20.0f);
+		c.brokenSeconds	= IniF("Posture", "PlayerBrokenSeconds", 4.0f);
+		c.brokenDmgMult	= IniF("Posture", "PlayerBrokenDamageMult", 2.0f);
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
 		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 400);
 		c.attackRecoverMs = IniI("NpcBlock", "AttackRecoverMs", 300);
@@ -806,7 +813,8 @@ namespace
 	DWORD			g_lastSummary = 0;
 	volatile LONG	g_hitLogged = 0;
 	volatile DWORD	g_playerShieldUntil = 0;
-	volatile DWORD	g_lastPlayerBlockedTick = 0;	// while the player's poise is above the floor his vanilla hit reactions are suppressed (until this tick)
+	volatile DWORD	g_lastPlayerBlockedTick = 0;
+	volatile DWORD	g_playerBrokenUntil = 0;	// player posture broke: damage multiplier, stamina 0, no blocking	// while the player's poise is above the floor his vanilla hit reactions are suppressed (until this tick)
 	bool			g_vtableDumped = false;
 
 	void Lock()		{ EnterCriticalSection(&g_lockHolder.cs); }
@@ -1778,6 +1786,7 @@ namespace
 			dmg = g_cfg.creatureBase + h.attacker.unarmed * g_cfg.unarmedMult;	// criaturas e ataques sem arma
 		}
 		if(h.attackerIsActor && h.sourceKind != 2) dmg += h.attacker.mass * g_cfg.attackerMassMult + (float)h.attacker.level * g_cfg.atkLevelDmg;
+		if(h.attackerIsActor && h.attacker.isPlayer && g_playerExhausted && g_cfg.exhAtkPoiseMult > 0.0f) dmg *= g_cfg.exhAtkPoiseMult;
 		if(h.attackerIsActor && h.sourceKind != 2 && !h.attacker.isPlayer)
 		{
 			if(h.attacker.mass >= g_cfg.kbGiantMass) dmg *= g_cfg.giantDmgMult;
@@ -2595,6 +2604,15 @@ namespace
 
 				// que stagger? (a postura quebrada vence tudo; depois o poise quebrado; depois leve/medio)
 				if(postureBroke) kind = h.victim.isPlayer ? 3 : 4;
+				if(postureBroke && h.victim.isPlayer && g_cfg.brokenSeconds > 0.0f)
+				{
+					const DWORD be = now + (DWORD)(g_cfg.brokenSeconds * 1000.0f);
+					g_playerBrokenUntil = be;
+					g_exhaustBlockUntil = be;	// no stamina regen while broken
+					float sc = 0.0f, sm = 0.0f;
+					if(h.victimRef && ReadAV((Actor *)h.victimRef, 26, &sc, &sm) && sc > 0.0f) RestoreAV((Actor *)h.victimRef, 26, -sc);
+					_MESSAGE("POSTURE BROKEN (player): %.1f s exposed (damage x%.1f, stamina 0, no blocking)", g_cfg.brokenSeconds, g_cfg.brokenDmgMult);
+				}
 				else if(poiseBroke || bossStagger) kind = 3;
 				else if(inLock)
 				{
@@ -3009,6 +3027,16 @@ namespace
 				result *= g_cfg.exhaustBlockMult;	// exhausted: the block absorbs less
 				why = "exhausted block";
 			}
+			if(isPlayer && result < 0.0f && g_playerBrokenUntil && (LONG)(now - g_playerBrokenUntil) < 0 && g_cfg.brokenDmgMult > 1.0f)
+			{
+				result *= g_cfg.brokenDmgMult;	// broken posture: the player is exposed
+				why = "broken posture";
+			}
+			if(!isPlayer && result < 0.0f && g_playerExhausted && attacker && attacker->formID == 0x14 && g_cfg.exhAtkDmgMult > 0.0f && g_cfg.exhAtkDmgMult < 1.0f)
+			{
+				result *= g_cfg.exhAtkDmgMult;	// exhausted player deals less damage
+				why = "exhausted attack";
+			}
 			if(isPlayer && attacker && attacker != self) NoteAttackerOfPlayer(attacker->formID, now);
 			if(isPlayer && g_cfg.livesEnabled)
 			{
@@ -3282,9 +3310,11 @@ namespace
 	}
 
 	// Pedidos de acao do jogador que a exaustao impede (as paragens passam sempre).
-	bool IsExhaustBlockedName(const char * n)
+	bool IsExhaustBlockedName(const char * n, bool broken)
 	{
-		if(!n || !g_cfg.exhaustBlockActions) return false;
+		if(!n) return false;
+		if(broken && _strnicmp(n, "blockStart", 10) == 0) return true;	// broken posture: no blocking
+		if(!g_cfg.exhaustBlockActions) return false;
 		if(strstr(n, "Stop") || strstr(n, "stop") || strstr(n, "End") || strstr(n, "Exit") || strstr(n, "Release") || strstr(n, "release")) return false;
 		if(_strnicmp(n, "attack", 6) == 0 || _strnicmp(n, "bash", 4) == 0 || _strnicmp(n, "blockStart", 10) == 0) return true;
 		if(_strnicmp(n, "jump", 4) == 0 && (strstr(n, "Start") || strstr(n, "start"))) return true;
@@ -3334,7 +3364,8 @@ namespace
 					return true;
 				}
 			}
-			if(!g_ownNotify && g_cfg.enabled && g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0 && evn && IsExhaustBlockedName(evn->data))
+			const bool brokenNow = g_playerBrokenUntil && (LONG)(GetTickCount() - g_playerBrokenUntil) < 0;
+			if(!g_ownNotify && g_cfg.enabled && (brokenNow || (g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0)) && evn && IsExhaustBlockedName(evn->data, brokenNow))
 			{
 				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
 				if(pid == 0x14) { InterlockedIncrement(&g_shieldBlocked); return true; }
@@ -4077,6 +4108,34 @@ namespace
 		return ok;
 	}
 
+	// Exhausted player swings: each swing costs poise (light/heavy percent of max); at 0 the player stumbles back.
+	void N_SelfPoise(StaticFunctionTag *, bool heavy)
+	{
+		if(!g_cfg.enabled || !g_playerExhausted) return;
+		const float pct = heavy ? g_cfg.selfPoiseHeavy : g_cfg.selfPoiseLight;
+		if(!(pct > 0.0f)) return;
+		const DWORD now = GetTickCount();
+		bool broke = false;
+		Lock();
+		StateMap::iterator it = g_states.find(0x14);
+		if(it != g_states.end())
+		{
+			PoiseState & st = it->second;
+			if(now >= st.lockUntil && st.cur > 0.0f)
+			{
+				st.cur -= st.max * pct / 100.0f;
+				st.lastHit = now;
+				if(st.cur <= 0.0f) { st.cur = 0.0f; st.lockUntil = now + (DWORD)(g_cfg.lockSecondsPlayer * 1000.0f); broke = true; }
+			}
+		}
+		Unlock();
+		if(broke)
+		{
+			TESForm * f = LookupFormByID(0x14);
+			if(f) { _MESSAGE("SELF POISE BREAK: exhausted player ran out of poise by swinging"); SendStaggerEvent((TESObjectREFR *)f, 0, 3); }
+		}
+	}
+
 	void N_PowerStart(StaticFunctionTag *)
 	{
 		g_powerUntil = GetTickCount() + 1500;
@@ -4206,6 +4265,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, SInt32, SInt32>("RecentAttacker", "NahIDWinNative", N_RecentAttacker, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, BSFixedString>("GetSupremeAnim", "NahIDWinNative", N_GetSupremeAnim, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("OwnAnim", "NahIDWinNative", N_OwnAnim, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, bool>("SelfPoise", "NahIDWinNative", N_SelfPoise, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, bool, SInt32>("BleedAccepted", "NahIDWinNative", N_BleedAccepted, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("Ack", "NahIDWinNative", N_Ack, registry));
 		_MESSAGE("papyrus functions registered (NahIDWinNative)");

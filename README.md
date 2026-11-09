@@ -34,7 +34,11 @@ Max poise grows with mass and armor class.
 
 **NPC stagger.** The mod no longer suppresses or blocks NPC reactions and gives NPCs no stagger immunity: vanilla stagger passes through, the mod adds its light/medium stagger by tier and a single heavy stagger on a poise break (SBS keeps the lock).
 
-**Exhaustion (stamina 0).** It no longer prevents blocking or attacking: movement and attack speed drop (`SpeedFactor`, `AttackSpeedFactor`) and the block absorbs less (`BlockedDamageMult`, an approximation: damage that gets through a block is multiplied).
+**Exhaustion (stamina 0).** It no longer prevents blocking or attacking. Movement and attack speed drop (`SpeedFactor`, `AttackSpeedFactor`; attack speed only affects animations that honour `weaponSpeedMult`, MCO may ignore it), the block absorbs less (`BlockedDamageMult`, an approximation), the exhausted player deals less damage (`AttackDamageMult`) and less poise/posture (`AttackPoiseMult`), stamina does not regenerate while he keeps attacking, and every swing costs him poise (`SelfPoiseLightPercent` / `SelfPoiseHeavyPercent` of max); at 0 poise he stumbles back.
+
+**Broken posture (player).** No bleedout and no knockdown: he stumbles back and stays exposed for `PlayerBrokenSeconds` (damage x `PlayerBrokenDamageMult`, stamina 0, cannot block).
+
+**Guard break.** Running out of stamina while blocking breaks the poise and starts the stagger lock, where posture damage is multiplied (`[StaggerLock] PostureMult`). It no longer adds posture by itself (`GuardBreakPosturePercent=0`).
 
 **Rage / Supreme Rage.** Rage (G) trades health for damage reduction, damage bonus and stagger immunity. NPCs use it when posture is high and poise low. Supreme Rage (H) adds a fire aura with a long cooldown.
 

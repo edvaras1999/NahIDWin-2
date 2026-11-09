@@ -40,7 +40,7 @@ float sInitAt = 0.0
 Function LateInit()
 	RegisterInputs()
 	ZeroVanillaCosts()
-	NahIDWinNative.Log("bridge 0.24.2: late init pass " + sInitStage)
+	NahIDWinNative.Log("bridge 0.24.4: late init pass " + sInitStage)
 EndFunction
 
 ; A DLL avisa quando um save e carregado: os registos de animacao perdem-se, entao registamos de novo.
@@ -83,7 +83,7 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	sInitStage = 2
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.24.2: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.24.4: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
@@ -557,6 +557,9 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 				DoExhaustPlayer()
 			endif
 		endif
+	endif
+	if exhaustedNow
+		NahIDWinNative.SelfPoise(mode == 1)
 	endif
 	ApplyRegen()
 EndEvent
