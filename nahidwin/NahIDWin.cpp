@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.24.2 (stable base + NPC percent costs, player poise floor, no forced lock repeats)"
+#define PLUGIN_VERSION_STR	"0.24.3 (NPCs vanilla reactions, exhaustion rework, player stagger without knockdown)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -176,7 +176,8 @@ namespace
 		float	lowStamZone, lowStamRegen, lowStamPoise, poiseRegenMid, poiseRegenLow, classRegenPenalty;
 		float	exhaustMaxSeconds, exhaustTargetPct, exhaustRegenFactor, npcSwingRange;
 		float	npcBlockedMult, npcPostureBlockedMult, npcSwingPct, npcBlockPct;
-		float	levelPoise, atkLevelDmg, playerStaggerFloor;
+		float	levelPoise, atkLevelDmg, playerStaggerFloor, creatureDmgMult, giantDmgMult, exhaustBlockMult;
+		int		exhaustBlockActions;
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
@@ -445,6 +446,10 @@ namespace
 		c.atkLevelDmg	= IniF("Damage", "AttackerLevelMult", 0.35f);
 		c.playerStaggerFloor = IniF("Poise", "PlayerStaggerFloor", 0.5f);
 		c.legacyStagger	= IniI("Stagger", "LegacyForcedStagger", 0);
+		c.creatureDmgMult = IniF("Damage", "CreatureDamageMult", 0.55f);
+		c.giantDmgMult	= IniF("Damage", "GiantDamageMult", 0.40f);
+		c.exhaustBlockMult = IniF("Exhaustion", "BlockedDamageMult", 1.8f);
+		c.exhaustBlockActions = IniI("Exhaustion", "BlockActions", 0);
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
 		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 400);
 		c.attackRecoverMs = IniI("NpcBlock", "AttackRecoverMs", 300);
@@ -773,6 +778,7 @@ namespace
 	std::map<UInt32, FleeSlot> g_flee;
 	DWORD g_fleeTick = 0;
 	extern volatile DWORD g_exhaustBlockUntil;
+	extern volatile LONG g_playerExhausted;
 	volatile LONG	g_leftType = 0;			// tipo do item da mao esquerda (Papyrus GetEquippedItemType: 10 = escudo)
 	volatile LONG	g_deflectOn = 0;		// parry numa magia: enquanto segurar o bloqueio, a magia e devolvida
 	volatile DWORD	g_deflectStart = 0;
@@ -799,7 +805,8 @@ namespace
 	LONG			g_sentSeq[64];
 	DWORD			g_lastSummary = 0;
 	volatile LONG	g_hitLogged = 0;
-	volatile DWORD	g_playerShieldUntil = 0;	// while the player's poise is above the floor his vanilla hit reactions are suppressed (until this tick)
+	volatile DWORD	g_playerShieldUntil = 0;
+	volatile DWORD	g_lastPlayerBlockedTick = 0;	// while the player's poise is above the floor his vanilla hit reactions are suppressed (until this tick)
 	bool			g_vtableDumped = false;
 
 	void Lock()		{ EnterCriticalSection(&g_lockHolder.cs); }
@@ -1771,6 +1778,11 @@ namespace
 			dmg = g_cfg.creatureBase + h.attacker.unarmed * g_cfg.unarmedMult;	// criaturas e ataques sem arma
 		}
 		if(h.attackerIsActor && h.sourceKind != 2) dmg += h.attacker.mass * g_cfg.attackerMassMult + (float)h.attacker.level * g_cfg.atkLevelDmg;
+		if(h.attackerIsActor && h.sourceKind != 2 && !h.attacker.isPlayer)
+		{
+			if(h.attacker.mass >= g_cfg.kbGiantMass) dmg *= g_cfg.giantDmgMult;
+			else if(h.sourceKind == 0) dmg *= g_cfg.creatureDmgMult;
+		}
 
 		if(h.projId && h.sourceKind != 2)			dmg *= g_cfg.rangedMult;
 		if(h.flags & TESHitEvent::kFlag_PowerAttack)	dmg *= g_cfg.powerMult;
@@ -2573,13 +2585,16 @@ namespace
 						st.pCur = st.pMax * g_cfg.postureResetFraction;
 						st.cur = mx;
 						st.lockUntil = 0;
-						st.bleedUntil = now + (DWORD)(g_cfg.bleedSeconds * 1000.0f);
-						st.bleedImmuneUntil = st.bleedUntil + (DWORD)(g_cfg.bleedExtraImmune * 1000.0f);
+						if(!h.victim.isPlayer)
+						{
+							st.bleedUntil = now + (DWORD)(g_cfg.bleedSeconds * 1000.0f);
+							st.bleedImmuneUntil = st.bleedUntil + (DWORD)(g_cfg.bleedExtraImmune * 1000.0f);
+						}
 					}
 				}
 
 				// que stagger? (a postura quebrada vence tudo; depois o poise quebrado; depois leve/medio)
-				if(postureBroke) kind = 4;
+				if(postureBroke) kind = h.victim.isPlayer ? 3 : 4;
 				else if(poiseBroke || bossStagger) kind = 3;
 				else if(inLock)
 				{
@@ -2619,6 +2634,7 @@ namespace
 		{
 			const bool above = (mx > 0.0f) && (before / mx > g_cfg.playerStaggerFloor) && !poiseWasImmune;
 			g_playerShieldUntil = above ? now + 900 : 0;
+			if(blocked && !parry && !immune) g_lastPlayerBlockedTick = now;
 		}
 
 		// NPC exausto: recupera estamina logo (a estamina vazia fazia a IA recuar/fugir do combate)
@@ -2639,7 +2655,7 @@ namespace
 		if(doExec) SendExecuteEvent(h.victimRef, (g_cfg.execBigKill && h.victim.mass >= g_cfg.kbGiantMass) ? "big" : "");
 
 		// empurrao: so no stagger pesado e so em condicoes especificas
-		if(kind == 3 && g_cfg.kbEnabled && g_cfg.kbForce > 0.0f && (!h.victim.isPlayer || g_cfg.kbPlayer))
+		if(kind == 3 && g_cfg.kbEnabled && g_cfg.kbForce > 0.0f && !h.victim.isPlayer)
 		{
 			bool heavy = false;
 			if(g_cfg.kbOnPower && heavyHit) heavy = true;
@@ -2766,7 +2782,7 @@ namespace
 		{
 			if(kind == 7) _MESSAGE("EXHAUSTION: victim=%08X%s ran out of stamina", h.victim.id, h.victim.isPlayer ? "(player)" : "");
 			if(kind >= 3 && kind <= 5) _MESSAGE("%s: victim=%08X attacker=%08X (mode %d)", kind == 4 ? "POSTURE BREAK -> BLEEDOUT" : (kind == 5 ? "POISE BREAK -> heavy stagger + KNOCKBACK" : "POISE BREAK -> heavy stagger"), h.victim.id, h.attackerId, g_cfg.staggerMode);
-			if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7)
+			if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7 && !(h.victim.isPlayer && kind == 3))
 			{
 				const bool okS = NativeStagger(h.victimRef);
 				if(kind == 3 && ((poiseBroke && g_cfg.legacyStagger) || !okS)) AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
@@ -2987,6 +3003,11 @@ namespace
 						why = "boss life (essential bleedout)";
 					}
 				}
+			}
+			if(isPlayer && result < 0.0f && g_playerExhausted && g_cfg.exhaustBlockMult > 1.0f && (LONG)(now - g_lastPlayerBlockedTick) < 300 && (LONG)(now - g_lastPlayerBlockedTick) >= -50)
+			{
+				result *= g_cfg.exhaustBlockMult;	// exhausted: the block absorbs less
+				why = "exhausted block";
 			}
 			if(isPlayer && attacker && attacker != self) NoteAttackerOfPlayer(attacker->formID, now);
 			if(isPlayer && g_cfg.livesEnabled)
@@ -3263,7 +3284,7 @@ namespace
 	// Pedidos de acao do jogador que a exaustao impede (as paragens passam sempre).
 	bool IsExhaustBlockedName(const char * n)
 	{
-		if(!n) return false;
+		if(!n || !g_cfg.exhaustBlockActions) return false;
 		if(strstr(n, "Stop") || strstr(n, "stop") || strstr(n, "End") || strstr(n, "Exit") || strstr(n, "Release") || strstr(n, "release")) return false;
 		if(_strnicmp(n, "attack", 6) == 0 || _strnicmp(n, "bash", 4) == 0 || _strnicmp(n, "blockStart", 10) == 0) return true;
 		if(_strnicmp(n, "jump", 4) == 0 && (strstr(n, "Start") || strstr(n, "start"))) return true;
@@ -3337,7 +3358,7 @@ namespace
 			if((LONG)(GetTickCount() - g_ownAnimUntil) < 0) return false;
 			if(!evn || !IsHitReactionName(evn->data)) return false;
 			const UInt32 id = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);	// formID do ator (holder = ator + 0x20)
-			if(g_cfg.suppressVanilla && id != 0)
+			if(g_cfg.suppressVanilla && id == 0x14)
 			{
 				if(id == 0x14 && (LONG)(GetTickCount() - g_playerShieldUntil) >= 0) return false;	// poise at or below the floor: vanilla stagger (and SBS) take over
 				// so o mod decide o stagger: reacoes de golpe do jogo bloqueadas (o recuo do parry do Inpa passa)
@@ -3348,7 +3369,7 @@ namespace
 				}
 				return false;
 			}
-			if(!IsRagingId(id)) return false;
+			if(id != 0x14 || !IsRagingId(id)) return false;
 			InterlockedIncrement(&g_shieldBlocked);
 			return true;
 		}

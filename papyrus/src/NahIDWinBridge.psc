@@ -62,6 +62,10 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 		Game.GetPlayer().ModActorValue("SpeedMult", speedCut)
 	endif
 	speedCut = 0.0
+	if atkCut > 0.0
+		Game.GetPlayer().ModActorValue("WeaponSpeedMult", atkCut)
+	endif
+	atkCut = 0.0
 	exhaustedNow = false
 	NahIDWinNative.ExhaustEnded()
 	if NahIDWinNative.IniGetF("Exhaustion", "RepairSpeedOnLoad", 0.0) > 0.5
@@ -573,6 +577,12 @@ Function DoExhaustPlayer()
 		speedCut = pl.GetActorValue("SpeedMult") * (1.0 - sf)
 		pl.ModActorValue("SpeedMult", -speedCut)
 	endif
+	float af = NahIDWinNative.IniGetF("Exhaustion", "AttackSpeedFactor", 0.7)
+	atkCut = 0.0
+	if af >= 0.0 && af < 1.0
+		atkCut = pl.GetActorValue("WeaponSpeedMult") * (1.0 - af)
+		pl.ModActorValue("WeaponSpeedMult", -atkCut)
+	endif
 	lastRegen = 0.0
 	pl.SetActorValue("StaminaRateMult", 0.0)
 	NahIDWinNative.Log("exhaust player start " + exhMin)
@@ -616,6 +626,10 @@ Function EndExhaust()
 		pl.ModActorValue("SpeedMult", speedCut)
 		speedCut = 0.0
 	endif
+	if atkCut > 0.0
+		pl.ModActorValue("WeaponSpeedMult", atkCut)
+		atkCut = 0.0
+	endif
 	float rec = NahIDWinNative.IniGetF("Exhaustion", "RecoverStamina", 50.0)
 	float curSt = pl.GetActorValue("Stamina")
 	if rec > curSt
@@ -631,6 +645,7 @@ float exhMin = 2.0
 float exhMax = 8.0
 bool exhaustedNow = false
 float speedCut = 0.0
+float atkCut = 0.0
 
 ; sender = a vitima. numArg = sequencia * 8 + tipo (1..6). strArg = form id do agressor (decimal, pode ser negativo).
 Function OnNahStagger(string eventName, string strArg, float numArg, Form sender)
@@ -659,6 +674,15 @@ Function OnNahStagger(string eventName, string strArg, float numArg, Form sender
 				return
 			endif
 			; NPC sem estamina: stagger pesado
+		endif
+		if victim == Game.GetPlayer() && kind == 3
+			; player heavy stagger: the vanilla backward stumble (like a giant or a shout), no knockdown and no bleedout
+			victim.SetAnimationVariableBool("bNoStagger", false)
+			victim.SetAnimationVariableFloat("StaggerMagnitude", NahIDWinNative.IniGetF("Stagger", "PlayerHeavyMagnitude", 1.0))
+			NahIDWinNative.OwnAnim(700)
+			Debug.SendAnimationEvent(victim, "StaggerStart")
+			NahIDWinNative.Ack(packed)
+			return
 		endif
 		if victim == Game.GetPlayer() && sNoStagger && kind >= 2
 			; stagger do nosso mod (poise quebrado etc.) tem de passar mesmo durante a janela de imunidade

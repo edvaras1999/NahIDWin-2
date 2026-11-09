@@ -30,7 +30,11 @@ Max poise grows with mass and armor class.
 
 **NPC guard.** NPC AI and block animations are vanilla (the mod no longer suppresses block events). A guard breaks through stamina (NPCs pay a percentage of their own max stamina), poise and posture; the difficulty preset sets how fast (Easy much sooner than Hard).
 
-**Player stagger.** While the player's poise is above 50% (`[Poise] PlayerStaggerFloor`) no hit staggers. Below that, the vanilla stagger (and Scriptfree Behavior Staggerlock) take over. Max poise = armor + mass + character level (`LevelBonus`); poise lost per hit = weapon + attacker level (`AttackerLevelMult`). After a poise break the player's poise restarts from 0 and regenerates 3 s after the last hit. NPCs keep the mod's light/medium stagger; the heavy stagger is sent once (no repeats, SBS holds the lock). `LegacyForcedStagger=1` restores the old repeats.
+**Player stagger.** While the player's poise is above 50% (`[Poise] PlayerStaggerFloor`) no hit staggers. Below that, the vanilla stagger (and Scriptfree Behavior Staggerlock) take over. A poise or posture break gives a backward stumble (`PlayerHeavyMagnitude`), never a knockdown or bleedout; the player only bleeds out when dying. Max poise = armor + mass + character level; poise lost per hit = weapon + attacker level, reduced for creatures (`CreatureDamageMult`) and giants (`GiantDamageMult`). After a poise break the player's poise restarts from 0 and regenerates 3 s after the last hit.
+
+**NPC stagger.** The mod no longer suppresses or blocks NPC reactions and gives NPCs no stagger immunity: vanilla stagger passes through, the mod adds its light/medium stagger by tier and a single heavy stagger on a poise break (SBS keeps the lock).
+
+**Exhaustion (stamina 0).** It no longer prevents blocking or attacking: movement and attack speed drop (`SpeedFactor`, `AttackSpeedFactor`) and the block absorbs less (`BlockedDamageMult`, an approximation: damage that gets through a block is multiplied).
 
 **Rage / Supreme Rage.** Rage (G) trades health for damage reduction, damage bonus and stagger immunity. NPCs use it when posture is high and poise low. Supreme Rage (H) adds a fire aura with a long cooldown.
 
