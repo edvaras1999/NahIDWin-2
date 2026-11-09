@@ -30,7 +30,9 @@ Max poise grows with mass and armor class.
 
 **Blocking.** A blocked hit on the player counts as defense class 4 and a fraction of the poise/posture damage (0.12 / 0.105). A blocked hit on an NPC keeps the NPC's armor class and does 0.30 poise / 0.40 posture damage (Normal), so guards break. Only a parry counts as class 4 against an NPC.
 
-**NPC guard.** NPCs cannot block while stagger-locked, bleeding out, staggered, exhausted, attacking, or below a stamina threshold (15% by default), and raise their guard with a delay after a stagger or an attack. A guard held longer than a limit (3 s) is cut with a `blockStop` followed by a short pause without guard, and the game's block time settings (`fCombatBlockTimeMin/Mid/Max`) are set from the INI, which prevents endless blocking.
+**NPC guard.** NPC AI and animations are 100% vanilla (the mod no longer suppresses or injects block events, and no longer touches the block game settings). A guard breaks through stamina (percent costs), poise and posture; the difficulty preset sets how fast (Easy breaks much sooner than Hard).
+
+**Player stagger.** While the player's poise is above 50% (`[Poise] PlayerStaggerFloor`) no hit staggers. Below that, the vanilla stagger (and Scriptfree Behavior Staggerlock) take over, so every hit staggers. Max poise = armor + mass + character level (`LevelBonus`); poise lost per hit = weapon + attacker level (`AttackerLevelMult`). After a poise break the player's poise starts again from 0 and regenerates (3 s after the last hit). Forced light/medium staggers and repeated staggerlock are off (`LegacyForcedStagger=0`).
 
 **Rage / Supreme Rage.** Rage (G) trades health for damage reduction, damage bonus and stagger immunity. NPCs use it when posture is high and poise low. Supreme Rage (H) adds a fire aura with a long cooldown.
 

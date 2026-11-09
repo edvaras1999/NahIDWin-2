@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.26.0 (NPC percent stamina costs, NPC block rework, guard cooldown)"
+#define PLUGIN_VERSION_STR	"0.27.0 (clean NPCs, player poise floor 50%)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -180,6 +180,8 @@ namespace
 		float	swingBase, swingPerWeight, powerMult2, bashMult2, blockStamFactor, blockStamShield, guardBreakPosture;
 		float	lowStamZone, lowStamRegen, lowStamPoise, poiseRegenMid, poiseRegenLow, classRegenPenalty;
 		float	exhaustMaxSeconds, exhaustTargetPct, exhaustRegenFactor, npcSwingRange;
+		float	levelPoise, atkLevelDmg, playerStaggerFloor;
+		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
 		// deflect continuo
@@ -438,7 +440,11 @@ namespace
 		c.wornWeightMid	= IniF("Classes", "WornWeightMid", 8.0f);
 		c.wornWeightHeavy = IniF("Classes", "WornWeightHeavy", 28.0f);
 		c.suppressVanilla = IniI("Stagger", "SuppressVanilla", 1);
-		c.npcGuardRules	= IniI("NpcBlock", "GuardRules", 1);
+		c.npcGuardRules	= 0;	// v0.27: NPC AI and animations are vanilla (the old guard rules interfered with them)
+		c.levelPoise	= IniF("Poise", "LevelBonus", 1.5f);
+		c.atkLevelDmg	= IniF("Damage", "AttackerLevelMult", 0.35f);
+		c.playerStaggerFloor = IniF("Poise", "PlayerStaggerFloor", 0.5f);
+		c.legacyStagger	= IniI("Stagger", "LegacyForcedStagger", 0);
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
 		c.npcBlockDelayMs = IniI("NpcBlock", "BlockStartDelayMs", 400);
 		c.attackRecoverMs = IniI("NpcBlock", "AttackRecoverMs", 300);
@@ -725,6 +731,7 @@ namespace
 	// ------------------------------------------------------------------ estado do poise
 	struct PoiseState
 	{
+		bool	isPl;
 		float	cur;			// poise atual (desce com os golpes)
 		float	max;
 		DWORD	lastHit;
@@ -799,6 +806,8 @@ namespace
 	LONG			g_sentSeq[64];
 	DWORD			g_lastSummary = 0;
 	volatile LONG	g_hitLogged = 0;
+	volatile DWORD	g_lastPlayerHitTick = 0;
+	volatile DWORD	g_playerShieldUntil = 0;	// v0.27: while poise > floor the player's vanilla hit reactions are suppressed (until this tick)
 	bool			g_vtableDumped = false;
 
 	void Lock()		{ EnterCriticalSection(&g_lockHolder.cs); }
@@ -810,7 +819,7 @@ namespace
 		if(st.lockUntil)
 		{
 			if((LONG)(now - st.lockUntil) < 0) { st.lastTick = now; return; }	// staggerlock: sem regeneracao
-			st.lockUntil = 0; st.cur = st.max; st.lastHit = now;				// fim do lock: poise cheio
+			st.lockUntil = 0; st.cur = (st.max > 0.0f && st.isPl) ? 0.0f : st.max; st.lastHit = now;	// fim do lock: NPC poise cheio; jogador regenera a partir de 0
 		}
 		if(g_cfg.regenSeconds > 0.0f && st.cur < st.max)
 		{
@@ -856,6 +865,7 @@ namespace
 				}
 			}
 			PoiseState s;
+			s.isPl = (id == 0x14);
 			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.staggerUntil = 0;
 			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0;
 			it = g_states.insert(std::make_pair(id, s)).first;
@@ -882,6 +892,7 @@ namespace
 		bool	alive;
 		bool	isPlayer;
 		bool	boss;
+		int		level;
 	};
 
 	// Boss = NPC com nivel >= nivel do jogador + margem (e que nao e companheiro do jogador).
@@ -924,6 +935,7 @@ namespace
 			if(!(out->hp >= 0.0f && out->hp <= out->hpMax * 4.0f)) out->hp = out->hpMax;
 			out->alive = (Engine::LifeState(a) == 0);
 			out->boss = IsBossActor(a);
+			{ const int lv = (int)CALL_MEMBER_FN(a, GetLevel)(); out->level = (lv > 0 && lv < 1000) ? lv : 1; }
 			return true;
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER)
@@ -948,7 +960,7 @@ namespace
 	}
 	float ComputeMax(const ActorStats & s)
 	{
-		float m = s.mass * g_cfg.massMult + s.armor * g_cfg.armorFrac;
+		float m = s.mass * g_cfg.massMult + s.armor * g_cfg.armorFrac + (float)s.level * g_cfg.levelPoise;
 		m *= 1.0f + (float)(ArmorClass(s.armor, s.isPlayer) - 1) * g_cfg.classPoiseStep;
 		if(m < g_cfg.minPoise) m = g_cfg.minPoise;
 		m *= s.isPlayer ? g_cfg.poiseMaxScalePlayer : g_cfg.poiseMaxScaleNpc;
@@ -1776,7 +1788,7 @@ namespace
 		{
 			dmg = g_cfg.creatureBase + h.attacker.unarmed * g_cfg.unarmedMult;	// criaturas e ataques sem arma
 		}
-		if(h.attackerIsActor && h.sourceKind != 2) dmg += h.attacker.mass * g_cfg.attackerMassMult;
+		if(h.attackerIsActor && h.sourceKind != 2) dmg += h.attacker.mass * g_cfg.attackerMassMult + (float)h.attacker.level * g_cfg.atkLevelDmg;
 
 		if(h.projId && h.sourceKind != 2)			dmg *= g_cfg.rangedMult;
 		if(h.flags & TESHitEvent::kFlag_PowerAttack)	dmg *= g_cfg.powerMult;
@@ -2590,9 +2602,9 @@ namespace
 				else if(inLock)
 				{
 					// staggerlock: cada golpe sem bloqueio volta a dar stagger pesado (no maximo de 600 em 600 ms)
-					if(!blocked && now >= st.lightUntil) { kind = 3; st.lightUntil = now + 600; }
+					if(g_cfg.legacyStagger && !blocked && now >= st.lightUntil) { kind = 3; st.lightUntil = now + 600; }
 				}
-				else if(!blocked && g_cfg.lightEnabled && (h.victim.isPlayer ? g_cfg.lightPlayer : g_cfg.lightNpc))
+				else if(!blocked && g_cfg.legacyStagger && g_cfg.lightEnabled && (h.victim.isPlayer ? g_cfg.lightPlayer : g_cfg.lightNpc))
 				{
 					// escalao do poise (depois do golpe) e diferenca de classe decidem o stagger
 					const float f2 = (mx > 0.0f) ? before / mx : 1.0f;	// escalao pelo poise ANTES do golpe
@@ -2620,6 +2632,13 @@ namespace
 			pAfter = st.pCur;
 		}
 		Unlock();
+
+		if(h.victim.isPlayer)
+		{
+			const bool above = (mx > 0.0f) && (before / mx > g_cfg.playerStaggerFloor) && !poiseWasImmune;
+			g_playerShieldUntil = above ? now + 900 : 0;
+			g_lastPlayerHitTick = now;
+		}
 
 		// NPC exausto: recupera estamina logo (a estamina vazia fazia a IA recuar/fugir do combate)
 		if(kind == 7 && !h.victim.isPlayer && g_cfg.npcExhaustRecoverPct > 0.0f)
@@ -2769,7 +2788,7 @@ namespace
 			if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7)
 			{
 				const bool okS = NativeStagger(h.victimRef);
-				if(kind == 3 && (poiseBroke || !okS)) AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
+				if(kind == 3 && ((poiseBroke && g_cfg.legacyStagger) || !okS)) AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
 			}
 			else SendStaggerEvent(h.victimRef, h.attackerId, kind);
 			if(kind >= 3 && kind <= 5) HudFlash(h.victimRef);
@@ -3324,6 +3343,17 @@ namespace
 					return true;
 				}
 			}
+			if(!g_ownNotify && g_cfg.diag && evn && evn->data && _stricmp(evn->data, "blockStop") == 0 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14)
+			{
+				static volatile LONG bsLogged = 0;
+				if(InterlockedIncrement(&bsLogged) <= 80)
+				{
+					const DWORD t = GetTickCount();
+					_MESSAGE("blockStop (player): %u ms after block press, %u ms after last hit, input held=%d, Inpa control=%.0f, main thread=%d, shield=%d",
+						(unsigned)(g_blockDownTick ? t - g_blockDownTick : 0), (unsigned)(g_lastPlayerHitTick ? t - g_lastPlayerHitTick : 0), (int)g_blockHeld,
+						InpaControlValue(), GetCurrentThreadId() == g_mainTid ? 1 : 0, (LONG)(t - g_playerShieldUntil) < 0 ? 1 : 0);
+				}
+			}
 			if(!g_ownNotify && g_cfg.enabled && g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0 && evn && IsExhaustBlockedName(evn->data))
 			{
 				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
@@ -3354,8 +3384,9 @@ namespace
 			if((LONG)(GetTickCount() - g_ownAnimUntil) < 0) return false;
 			if(!evn || !IsHitReactionName(evn->data)) return false;
 			const UInt32 id = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);	// formID do ator (holder = ator + 0x20)
-			if(g_cfg.suppressVanilla && id != 0)
+			if(g_cfg.suppressVanilla && id == 0x14)
 			{
+				if((LONG)(GetTickCount() - g_playerShieldUntil) >= 0) return false;	// poise at or below the floor: vanilla stagger (and SBS) take over
 				// so o mod decide o stagger: reacoes de golpe do jogo bloqueadas (o recuo do parry do Inpa passa)
 				if(!(id == g_parryAtkId && GetTickCount() - g_parryAtkTick < 1500))
 				{

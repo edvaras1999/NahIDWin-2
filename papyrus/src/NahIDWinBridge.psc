@@ -40,9 +40,7 @@ float sInitAt = 0.0
 Function LateInit()
 	RegisterInputs()
 	ZeroVanillaCosts()
-	Game.SetGameSettingFloat("fCombatBlockChanceMin", NahIDWinNative.IniGetF("NpcBlock", "ChanceMin", 0.3))
-	SetBlockTimes()
-	NahIDWinNative.Log("bridge 0.26.0: late init pass " + sInitStage)
+	NahIDWinNative.Log("bridge 0.27.0: late init pass " + sInitStage)
 EndFunction
 
 ; A DLL avisa quando um save e carregado: os registos de animacao perdem-se, entao registamos de novo.
@@ -81,24 +79,14 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	sInitStage = 2
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.26.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.27.0: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
 EndFunction
 
-; NPC guard time limits (game settings are not saved, so they are set on every load)
-Function SetBlockTimes()
-	Game.SetGameSettingFloat("fCombatBlockTimeMin", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMin", 1.0))
-	Game.SetGameSettingFloat("fCombatBlockTimeMid", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMid", 1.5))
-	Game.SetGameSettingFloat("fCombatBlockTimeMax", NahIDWinNative.IniGetF("NpcBlock", "BlockTimeMax", 3.0))
-EndFunction
-
 Function ApplyNpcBlock()
-	if NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
-		Game.SetGameSettingFloat("fCombatBlockChanceMin", NahIDWinNative.IniGetF("NpcBlock", "ChanceMin", 0.3))
-		SetBlockTimes()
-	endif
+	; v0.27: NPC block game settings are left vanilla
 	ZeroVanillaCosts()
 EndFunction
 
