@@ -28,11 +28,9 @@ Max poise grows with mass and armor class.
 
 **Magic deflect.** After parrying a spell, holding block returns the spell. It costs magicka per point of damage and returns part of the damage as health, poise and posture damage to the caster.
 
-**Blocking.** A blocked hit on the player counts as defense class 4 and a fraction of the poise/posture damage (0.12 / 0.105). A blocked hit on an NPC keeps the NPC's armor class and does 0.30 poise / 0.40 posture damage (Normal), so guards break. Only a parry counts as class 4 against an NPC.
+**NPC guard.** NPC AI and block animations are vanilla (the mod no longer suppresses block events). A guard breaks through stamina (NPCs pay a percentage of their own max stamina), poise and posture; the difficulty preset sets how fast (Easy much sooner than Hard).
 
-**NPC guard.** NPC AI and animations are 100% vanilla (the mod no longer suppresses or injects block events, and no longer touches the block game settings). A guard breaks through stamina (percent costs), poise and posture; the difficulty preset sets how fast (Easy breaks much sooner than Hard).
-
-**Player stagger.** While the player's poise is above 50% (`[Poise] PlayerStaggerFloor`) no hit staggers. Below that, the vanilla stagger (and Scriptfree Behavior Staggerlock) take over, so every hit staggers. Max poise = armor + mass + character level (`LevelBonus`); poise lost per hit = weapon + attacker level (`AttackerLevelMult`). After a poise break the player's poise starts again from 0 and regenerates (3 s after the last hit). Forced light/medium staggers and repeated staggerlock are off (`LegacyForcedStagger=0`).
+**Player stagger.** While the player's poise is above 50% (`[Poise] PlayerStaggerFloor`) no hit staggers. Below that, the vanilla stagger (and Scriptfree Behavior Staggerlock) take over. Max poise = armor + mass + character level (`LevelBonus`); poise lost per hit = weapon + attacker level (`AttackerLevelMult`). After a poise break the player's poise restarts from 0 and regenerates 3 s after the last hit. NPCs keep the mod's light/medium stagger; the heavy stagger is sent once (no repeats, SBS holds the lock). `LegacyForcedStagger=1` restores the old repeats.
 
 **Rage / Supreme Rage.** Rage (G) trades health for damage reduction, damage bonus and stagger immunity. NPCs use it when posture is high and poise low. Supreme Rage (H) adds a fire aura with a long cooldown.
 
@@ -45,8 +43,7 @@ Max poise grows with mass and armor class.
 Stamina is linked to poise and posture.
 
 - **Swing cost** (paid when the weapon swings, hit or miss): `(base + weapon weight x per-weight) x weapon type multiplier`. Power attacks multiply the cost; a shield bash uses the shield weight. The game's own attack and block costs are zeroed. NPCs pay the same.
-- **NPC costs are a percentage of the NPC's own max stamina**, so a huge stamina pool does not make NPCs tireless: a reference swing costs 6 / 4.5 / 3 % (Easy / Normal / Hard) and scales with weapon weight and power attacks; a blocked hit costs 20 / 14 / 10 %, x1.5 per class the attack is above the NPC's armor. The player keeps the weight-based formulas below.
-- **Block cost (player):** `damage x factor x 1.5^(attack class - armor class)`, shield x0.6. Stamina at 0 while blocking = guard break: poise 0, staggerlock, posture +%.
+- **Block cost:** `damage x factor x 1.5^(attack class - armor class)`, shield x0.6. Stamina at 0 while blocking = guard break: poise 0, staggerlock, posture +%.
 - **Low stamina zone** (below 25%): slower regen and more poise damage taken.
 - **Poise-linked regen:** poise below 50% / 25% slows stamina regen; during staggerlock there is none.
 - **Armor class** slows regen per class above 1.
@@ -77,10 +74,6 @@ Five tabs: **General & System**, **Stamina**, **Poise & Posture**, **Stagger & B
 - The **master preset** in General & System sets all tabs to one preset.
 - Changes are applied when the menu closes. In Special & HUD, presets only cover the Special part (rage, supreme, bosses, perilous); the HUD is always manual.
 - General & System also holds the Inpa options (parry timer, magic reflect, melee resist, execution, difficulty, resistances), extra lives and the on/off switch for the whole mod.
-
-## Recommended: Scriptfree Behavior Staggerlock (Nemesis)
-
-The staggerlock repeats the stagger animation while the lock lasts. The base game ignores `staggerStart` while an actor is already staggering, so install the Nemesis patch **Scriptfree Behavior Staggerlock** (distar, Nexus Skyrim LE mod 101719) and run Nemesis. It is not included in this package.
 
 ## Troubleshooting
 

@@ -40,7 +40,7 @@ float sInitAt = 0.0
 Function LateInit()
 	RegisterInputs()
 	ZeroVanillaCosts()
-	NahIDWinNative.Log("bridge 0.27.0: late init pass " + sInitStage)
+	NahIDWinNative.Log("bridge 0.24.2: late init pass " + sInitStage)
 EndFunction
 
 ; A DLL avisa quando um save e carregado: os registos de animacao perdem-se, entao registamos de novo.
@@ -79,14 +79,14 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	sInitStage = 2
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
-	NahIDWinNative.Log("bridge 0.27.0: eventos de mod e de animacao registados")
+	NahIDWinNative.Log("bridge 0.24.2: eventos de mod e de animacao registados")
 	; o Inpa reaplica os Game Settings dele ao carregar (bloqueio dos NPCs a 0.60); depois disso repomos o valor escolhido no menu
 	Utility.Wait(8.0)
 	ApplyNpcBlock()
 EndFunction
 
 Function ApplyNpcBlock()
-	; v0.27: NPC block game settings are left vanilla
+	; v0.24.2: NPC block game settings are left vanilla
 	ZeroVanillaCosts()
 EndFunction
 
@@ -480,37 +480,30 @@ EndFunction
 ; Regeneracao de estamina do jogador conforme a armadura (100 = normal).
 float lastRegen = -1.0
 bool inCombatNow = false
-int wwTick = 0
-
 Function ApplyRegen()
 	Actor pl = Game.GetPlayer()
 	inCombatNow = pl.IsInCombat()
 	NahIDWinNative.SetLeftType(pl.GetEquippedItemType(0))
-	; worn weight changes rarely: scan the armor slots every 4th pass only (less Papyrus load)
-	wwTick += 1
-	if wwTick >= 4 || lastRegen < 0.0
-		wwTick = 0
-		float ww = 0.0
-		int slotMasks = 0
-		Form wf
-		wf = pl.GetWornForm(4)
-		if wf
-			ww += wf.GetWeight()
-		endif
-		wf = pl.GetWornForm(1)
-		if wf
-			ww += wf.GetWeight()
-		endif
-		wf = pl.GetWornForm(8)
-		if wf
-			ww += wf.GetWeight()
-		endif
-		wf = pl.GetWornForm(128)
-		if wf
-			ww += wf.GetWeight()
-		endif
-		NahIDWinNative.SetWornWeight(ww)
+	float ww = 0.0
+	int slotMasks = 0
+	Form wf
+	wf = pl.GetWornForm(4)
+	if wf
+		ww += wf.GetWeight()
 	endif
+	wf = pl.GetWornForm(1)
+	if wf
+		ww += wf.GetWeight()
+	endif
+	wf = pl.GetWornForm(8)
+	if wf
+		ww += wf.GetWeight()
+	endif
+	wf = pl.GetWornForm(128)
+	if wf
+		ww += wf.GetWeight()
+	endif
+	NahIDWinNative.SetWornWeight(ww)
 	float r = NahIDWinNative.GetCombatRegen(inCombatNow)
 	if r >= 0.0 && Math.Abs(r - lastRegen) > 1.0
 		lastRegen = r
