@@ -2,10 +2,7 @@
 
 Sekiro-style **Poise + Posture + Stamina** combat for Skyrim **Legendary Edition** (1.9.32.0, SKSE 1.7.3).
 An SKSE plugin does the calculations; a small Papyrus bridge and a SkyUI menu handle what needs scripts.
-Designed to run on top of Inpa Sekiro Combat LE (parry, block, execution, difficulty); the Inpa files are not part of this repository.
-
-Config: `Data/SKSE/Plugins/NahIDWin.ini`. Log: `Documents/My Games/Skyrim/SKSE/NahIDWin.log`.
-Optional: TrueHUD LE for the poise bar.
+Designed to run on top of Inpa Sekiro Combat LE (parry, block, execution, difficulty)
 
 ## Combat model
 
