@@ -74,6 +74,12 @@ Presets (Hard = strictest):
 | Low zone regen / poise damage | x0.8 / x1.1 | x0.7 / x1.2 | x0.6 / x1.25 |
 | Regen at poise < 50% / < 25% | x0.85 / x0.7 | x0.8 / x0.6 | x0.75 / x0.5 |
 
+## Armor class per piece and hitch log (v0.25.2)
+
+The player's defense class now comes from each worn piece (`[Classes] WornMode=1`): body 45%, head/hands/feet 15% each, shield 10%; light armor counts 0.5, heavy 1.0, clothing 0. Score >= `WornScoreMid` is class 2, >= `WornScoreHeavy` class 3 (NPCs still use their armor rating). `WornMode=0` returns to the old total-weight rule.
+
+With `[Diagnostics] HitchMs=120` the log shows `HITCH:` lines when the game thread stalls during combat or the OnHit handler takes 15 ms or more, with the last mod action before it.
+
 ## Execution (v0.25.1)
 
 Executions only trigger on a melee weapon hit (never arrows) from at most `[Execution] Range` game units away, on a target in bleedout, with `Chance` % (power attacks: `PowerAttackChance` %). Rejected attempts are logged ("execution not requested ... too far / chance / ranged weapon").

@@ -481,6 +481,21 @@ Function OnNahRage(string eventName, string strArg, float numArg, Form sender)
 	endif
 EndFunction
 
+; 0 = sem peca ou roupa, 0.5 = leve, 1.0 = pesada
+float Function PieceScore(Actor pl, int mask)
+	Armor ar = pl.GetWornForm(mask) as Armor
+	if !ar
+		return 0.0
+	endif
+	int wc = ar.GetWeightClass()
+	if wc == 1
+		return 1.0
+	elseif wc == 0
+		return 0.5
+	endif
+	return 0.0
+EndFunction
+
 ; Regeneracao de estamina do jogador conforme a armadura (100 = normal).
 float lastRegen = -1.0
 bool inCombatNow = false
@@ -508,6 +523,9 @@ Function ApplyRegen()
 		ww += wf.GetWeight()
 	endif
 	NahIDWinNative.SetWornWeight(ww)
+	; classe de defesa por peca: corpo .45, cabeca/maos/pes .15, escudo .10; armadura leve vale .5, pesada 1, roupa 0
+	float sc = PieceScore(pl, 4) * 0.45 + PieceScore(pl, 1) * 0.15 + PieceScore(pl, 8) * 0.15 + PieceScore(pl, 128) * 0.15 + PieceScore(pl, 512) * 0.10
+	NahIDWinNative.SetWornScore(sc)
 	float r = NahIDWinNative.GetCombatRegen(inCombatNow)
 	if r >= 0.0 && Math.Abs(r - lastRegen) > 1.0
 		lastRegen = r

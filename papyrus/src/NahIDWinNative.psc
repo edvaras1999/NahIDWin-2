@@ -31,6 +31,7 @@ float Function GetCombatRegen(bool inCombat) global native
 Function SetLeftType(int t) global native
 ; Peso das pecas de armadura vestidas pelo jogador (define a classe de defesa 1-3).
 Function SetWornWeight(float w) global native
+Function SetWornScore(float sc) global native
 
 ; Exaustao (estamina a zero): duracao em segundos e pedido de entrada (false = em recarga).
 float Function GetExhaustSeconds() global native

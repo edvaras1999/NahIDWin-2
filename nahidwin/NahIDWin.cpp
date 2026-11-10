@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.25.1 (guard break dmg, execution rules, lock posture cap)"
+#define PLUGIN_VERSION_STR	"0.25.2 (hitch log, per-piece armor class)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -182,6 +182,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -439,6 +440,10 @@ namespace
 		c.exhaustRegenFactor = IniF("Exhaustion", "RegenFactor", 0.6f);
 		c.wornWeightMid	= IniF("Classes", "WornWeightMid", 8.0f);
 		c.wornWeightHeavy = IniF("Classes", "WornWeightHeavy", 28.0f);
+		c.wornMode		= IniI("Classes", "WornMode", 1);
+		c.wornScoreMid	= IniF("Classes", "WornScoreMid", 0.20f);
+		c.wornScoreHeavy = IniF("Classes", "WornScoreHeavy", 0.65f);
+		c.hitchMs		= IniI("Diagnostics", "HitchMs", 120);
 		c.suppressVanilla = IniI("Stagger", "SuppressVanilla", 1);
 		c.npcGuardRules	= 0;	// v0.24.2: NPC guard rules (block suppression) removed; NPC AI stays vanilla
 		c.npcBlockedMult = IniF("Damage", "BlockedMultNpc", 0.65f);
@@ -962,10 +967,19 @@ namespace
 		}
 	}
 
+	volatile float g_wornScore = -1.0f;	// pontuacao por peca (Papyrus): corpo .45, cabeca/maos/pes .15, escudo .10; leve .5, pesada 1, roupa 0
+	volatile DWORD g_lastActTick = 0;	// ultima acao nossa (diagnostico de travadas)
+	const char * volatile g_lastActLabel = "none";
 	volatile float g_wornWeight = -1.0f;	// peso das pecas vestidas pelo jogador (Papyrus); -1 = desconhecido
 	// Classe de defesa: 1 roupa, 2 armadura leve/media, 3 pesada. O jogador pelo peso vestido, os outros pelo valor da armadura.
 	int ArmorClass(float armor, bool isPlayer = false)
 	{
+		if(isPlayer && g_cfg.wornMode == 1 && g_wornScore >= 0.0f)
+		{
+			if(g_wornScore >= g_cfg.wornScoreHeavy) return 3;
+			if(g_wornScore >= g_cfg.wornScoreMid) return 2;
+			return 1;
+		}
 		if(isPlayer && g_wornWeight >= 0.0f)
 		{
 			if(g_wornWeight >= g_cfg.wornWeightHeavy) return 3;
@@ -2883,7 +2897,12 @@ namespace
 		{
 			__try
 			{
+				const DWORD t0 = GetTickCount();
+				g_lastActTick = t0; g_lastActLabel = "OnHit";
 				OnHit(evn);
+				const DWORD dt = GetTickCount() - t0;
+				static volatile LONG slowLogged = 0;
+				if(g_cfg.diag && g_cfg.hitchMs > 0 && dt >= 15 && InterlockedIncrement(&slowLogged) <= 60) _MESSAGE("HITCH: OnHit took %u ms", (unsigned)dt);
 			}
 			__except(EXCEPTION_EXECUTE_HANDLER)
 			{
@@ -3404,6 +3423,16 @@ namespace
 	{
 		__try
 		{
+			if(g_cfg.diag && g_cfg.hitchMs > 0 && GetCurrentThreadId() == g_mainTid)
+			{
+				static volatile DWORD lastNotify = 0;
+				static volatile LONG hitchLogged = 0;
+				const DWORD tn = GetTickCount();
+				const DWORD gap = tn - lastNotify;
+				lastNotify = tn;
+				if(gap >= (DWORD)g_cfg.hitchMs && gap < 2500 && (DWORD)(tn - g_lastActTick) < 8000 && InterlockedIncrement(&hitchLogged) <= 60)
+					_MESSAGE("HITCH: game thread gap %u ms in combat (last NahIDWin action: %s, %u ms ago)", (unsigned)gap, g_lastActLabel, (unsigned)(tn - g_lastActTick));
+			}
 			if(g_cfg.diag && evn && evn->data && (_strnicmp(evn->data, "block", 5) == 0 || _strnicmp(evn->data, "recoil", 6) == 0 || _strnicmp(evn->data, "parry", 5) == 0))
 			{
 				static volatile LONG animLogged = 0;
@@ -4008,6 +4037,12 @@ namespace
 
 	// ------------------------------------------------------------------ funcoes nativas para o Papyrus
 	void N_SetLeftType(StaticFunctionTag *, SInt32 t) { g_leftType = t; }
+	void N_SetWornScore(StaticFunctionTag *, float sc)
+	{
+		const float old = g_wornScore;
+		g_wornScore = sc;
+		if(old < 0.0f || sc > old + 0.02f || sc < old - 0.02f) _MESSAGE("worn armor score (per piece) = %.2f -> player defense class %d (mid %.2f, heavy %.2f, mode %d)", sc, ArmorClass(0.0f, true), g_cfg.wornScoreMid, g_cfg.wornScoreHeavy, g_cfg.wornMode);
+	}
 	void N_SetWornWeight(StaticFunctionTag *, float w)
 	{
 		const float old = g_wornWeight;
@@ -4326,6 +4361,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("TryExhaust", "NahIDWinNative", N_TryExhaust, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("PowerStart", "NahIDWinNative", N_PowerStart, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, float>("SetWornWeight", "NahIDWinNative", N_SetWornWeight, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, float>("SetWornScore", "NahIDWinNative", N_SetWornScore, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("SetLeftType", "NahIDWinNative", N_SetLeftType, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, BSFixedString>("Log", "NahIDWinNative", N_Log, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, SInt32>("GetLanguage", "NahIDWinNative", N_GetLanguage, registry));
