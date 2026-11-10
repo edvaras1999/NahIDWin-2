@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.25.2 (hitch log, per-piece armor class)"
+#define PLUGIN_VERSION_STR	"0.25.3 (behavior animation per situation)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -182,7 +182,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6];
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -444,6 +444,12 @@ namespace
 		c.wornScoreMid	= IniF("Classes", "WornScoreMid", 0.20f);
 		c.wornScoreHeavy = IniF("Classes", "WornScoreHeavy", 0.65f);
 		c.hitchMs		= IniI("Diagnostics", "HitchMs", 120);
+		c.animTier[1]	= IniI("Behavior", "LightAnim", 1);
+		c.animTier[2]	= IniI("Behavior", "MediumAnim", 2);
+		c.animTier[3]	= IniI("Behavior", "PoiseBreakAnim", 3);
+		c.animTier[4]	= IniI("Behavior", "PostureBreakAnim", 4);
+		c.animTier[5]	= IniI("Behavior", "ParryAnim", 2);
+		for(int q = 1; q <= 5; q++) if(c.animTier[q] < 1 || c.animTier[q] > 4) c.animTier[q] = (q > 4) ? 2 : q;
 		c.suppressVanilla = IniI("Stagger", "SuppressVanilla", 1);
 		c.npcGuardRules	= 0;	// v0.24.2: NPC guard rules (block suppression) removed; NPC AI stays vanilla
 		c.npcBlockedMult = IniF("Damage", "BlockedMultNpc", 0.65f);
@@ -1618,7 +1624,8 @@ namespace
 	}
 	bool NativeStaggerTier(TESObjectREFR * ref, int tier, TESObjectREFR * attacker)
 	{
-		if(!g_cfg.behavior || tier < 1 || tier > 4) return NativeStagger(ref);
+		if(!g_cfg.behavior || tier < 1 || tier > 5) return NativeStagger(ref);
+		tier = g_cfg.animTier[tier];
 		static const char * const base[5] = { "", "poise_small_start", "poise_med_start", "poise_large_start", "poise_largest_start" };
 		char ev[48];
 		_snprintf_s(ev, sizeof(ev), _TRUNCATE, "%s%s", base[tier], HitFromBehind(ref, attacker) ? "_fwd" : "");
@@ -2842,7 +2849,7 @@ namespace
 			PerilousClear(h.attackerId);
 			if(ak && h.attackerActor)
 			{
-				if(g_cfg.staggerMode == 1 && ak != 4) NativeStaggerTier((TESObjectREFR *)h.attackerActor, 3, h.victimRef);
+				if(g_cfg.staggerMode == 1 && ak != 4) NativeStaggerTier((TESObjectREFR *)h.attackerActor, 5, h.victimRef);
 				else SendStaggerEvent((TESObjectREFR *)h.attackerActor, h.victim.id, ak);
 				if(ak == 4) _MESSAGE("POSTURE BREAK (by parry) -> BLEEDOUT: %08X", h.attacker.id);
 			}
