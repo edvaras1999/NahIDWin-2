@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.25.0 (behavior events poise_*, tiers + direction)"
+#define PLUGIN_VERSION_STR	"0.25.1 (guard break dmg, execution rules, lock posture cap)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -284,7 +284,9 @@ namespace
 		int		livesEnabled, livesLevel2, livesLevel3;
 		float	livesHealthPct, livesGoldPct, livesInvuln;
 		// bosses (2 vidas): unico + nivel minimo
-		int		execEnabled, execBigKill;			// execucao garantida (evento para o Papyrus); gigantes/dragoes: matar
+		int		execEnabled, execBigKill, execMeleeOnly;
+		float	execRange, execChance, execPowerChance;
+		float	gbDmgMult, lockPostureCapPct;			// execucao garantida (evento para o Papyrus); gigantes/dragoes: matar
 		float	bossPoiseMult, bossPostureMult, bigPoiseMult, bigPostureMult;
 		char	supAnim[48];						// evento de animacao ao ativar o Supremo (vazio = nenhum)
 		int		livesEssential;	// 1 = metodo do SkyTweak: jogador essencial enquanto ha vidas (bleedout verdadeiro do jogo)
@@ -590,6 +592,12 @@ namespace
 		c.livesEssential = IniI("Lives", "EssentialBleedout", 1);
 		c.execEnabled	= IniI("Execution", "Enabled", 1);
 		c.execBigKill	= IniI("Execution", "KillBigCreatures", 1);
+		c.execMeleeOnly	= IniI("Execution", "MeleeOnly", 1);
+		c.execRange		= IniF("Execution", "Range", 300.0f);
+		c.execChance	= IniF("Execution", "Chance", 60.0f);
+		c.execPowerChance = IniF("Execution", "PowerAttackChance", 100.0f);
+		c.gbDmgMult		= IniF("GuardBreak", "DamageMult", 1.1f);
+		c.lockPostureCapPct = IniF("StaggerLock", "PostureCapPercent", 15.0f);
 		c.bossPoiseMult	= IniF("Bosses", "PoiseMult", 1.5f);
 		c.bossPostureMult = IniF("Bosses", "PostureMult", 1.5f);
 		c.bigPoiseMult	= IniF("BigCreatures", "PoiseMult", 1.5f);
@@ -759,6 +767,7 @@ namespace
 		DWORD	invulnUntil;	// sem dano de vida ate aqui (vida extra / bleedout de boss)
 		int		bossUsed;		// boss: a vida extra ja foi gasta
 		DWORD	lastExec;		// ultima execucao pedida
+		DWORD	gbUntil;		// guarda quebrada ate aqui (dano extra)
 	};
 	typedef std::map<UInt32, PoiseState> StateMap;
 
@@ -875,7 +884,7 @@ namespace
 			PoiseState s;
 			s.isPl = (id == 0x14);
 			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.staggerUntil = 0;
-			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0;
+			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0; s.gbUntil = 0;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
 		else
@@ -1939,7 +1948,7 @@ namespace
 						}
 						if(g_cfg.postureEnabled)
 						{
-							st.pCur += ret * g_cfg.deflectPostureFactor * (inLock ? g_cfg.lockPostureMult : 1.0f);
+							{ float dp = ret * g_cfg.deflectPostureFactor * (inLock ? g_cfg.lockPostureMult : 1.0f); if(inLock && g_cfg.lockPostureCapPct > 0.0f && dp > st.pMax * g_cfg.lockPostureCapPct / 100.0f) dp = st.pMax * g_cfg.lockPostureCapPct / 100.0f; st.pCur += dp; }
 							if(st.pCur >= st.pMax && bossP1) { st.pCur = st.pMax * g_cfg.postureResetFraction; kind = 3; }
 							else if(st.pCur >= st.pMax)
 							{
@@ -2113,6 +2122,7 @@ namespace
 				st.cur = 0.0f;
 				lockEnd = now + (DWORD)((h.victim.isPlayer ? g_cfg.lockSecondsPlayer : g_cfg.lockSecondsNpc) * 1000.0f);
 				st.lockUntil = lockEnd;
+				st.gbUntil = lockEnd;
 				st.lastHit = now; st.pLastHit = now;
 				if(g_cfg.postureEnabled)
 				{
@@ -2565,8 +2575,28 @@ namespace
 			if(g_cfg.execEnabled && h.attackerId == 0x14 && h.sourceKind == 1 && !h.victim.isPlayer && h.victim.alive && !bossP1 &&
 				now < st.bleedUntil && now >= st.invulnUntil && (st.lastExec == 0 || now - st.lastExec > 4000))
 			{
-				st.lastExec = now;
-				doExec = true;
+				// v0.25.1: execucao so com golpe corpo a corpo, de perto, com chance (golpe de poder: chance propria)
+				bool okExec = true;
+				const char * why = "";
+				if(g_cfg.execMeleeOnly && (h.weaponType == 7 || h.weaponType == 9)) { okExec = false; why = "ranged weapon"; }
+				if(okExec && h.attackerActor && h.victimRef && g_cfg.execRange > 0.0f)
+				{
+					float d = 99999.0f;
+					__try
+					{
+						const float dx = h.attackerActor->pos.x - h.victimRef->pos.x, dy = h.attackerActor->pos.y - h.victimRef->pos.y, dz = h.attackerActor->pos.z - h.victimRef->pos.z;
+						d = sqrtf(dx * dx + dy * dy + dz * dz);
+					}
+					__except(EXCEPTION_EXECUTE_HANDLER) { d = 99999.0f; }
+					if(d > g_cfg.execRange) { okExec = false; why = "too far"; }
+				}
+				if(okExec)
+				{
+					const float ch = ((h.flags & TESHitEvent::kFlag_PowerAttack) != 0) ? g_cfg.execPowerChance : g_cfg.execChance;
+					if((float)(rand() % 100) >= ch) { okExec = false; why = "chance"; }
+				}
+				if(okExec) { st.lastExec = now; doExec = true; }
+				else { static volatile LONG xl = 0; if(g_cfg.diag && InterlockedIncrement(&xl) <= 40) _MESSAGE("execution not requested on %08X: %s", h.victim.id, why); }
 			}
 
 			// furia automatica dos NPCs
@@ -2609,6 +2639,7 @@ namespace
 					}
 				}
 				postureDmg = postureBase * (inLock ? g_cfg.lockPostureMult : (fracBefore > g_cfg.tierMid ? g_cfg.postureTierHigh : (fracBefore > g_cfg.tierLow ? g_cfg.postureTierMid : g_cfg.postureTierLow)));
+				if(inLock && g_cfg.lockPostureCapPct > 0.0f && postureDmg > st.pMax * g_cfg.lockPostureCapPct / 100.0f) postureDmg = st.pMax * g_cfg.lockPostureCapPct / 100.0f;
 				if(g_cfg.postureEnabled)
 				{
 					st.pCur += postureDmg;
@@ -3061,6 +3092,17 @@ namespace
 			{
 				result *= g_cfg.exhaustBlockMult;	// exhausted: the block absorbs less
 				why = "exhausted block";
+			}
+			if(result < 0.0f && g_cfg.gbDmgMult > 1.0f)
+			{
+				bool gb = false;
+				Lock();
+				{
+					StateMap::iterator ig = g_states.find(id);
+					if(ig != g_states.end() && ig->second.gbUntil && (LONG)(now - ig->second.gbUntil) < 0) gb = true;
+				}
+				Unlock();
+				if(gb) { result *= g_cfg.gbDmgMult; why = "guard break"; }
 			}
 			if(isPlayer && result < 0.0f && g_playerBrokenUntil && (LONG)(now - g_playerBrokenUntil) < 0 && g_cfg.brokenDmgMult > 1.0f)
 			{

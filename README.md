@@ -74,6 +74,14 @@ Presets (Hard = strictest):
 | Low zone regen / poise damage | x0.8 / x1.1 | x0.7 / x1.2 | x0.6 / x1.25 |
 | Regen at poise < 50% / < 25% | x0.85 / x0.7 | x0.8 / x0.6 | x0.75 / x0.5 |
 
+## Execution (v0.25.1)
+
+Executions only trigger on a melee weapon hit (never arrows) from at most `[Execution] Range` game units away, on a target in bleedout, with `Chance` % (power attacks: `PowerAttackChance` %). Rejected attempts are logged ("execution not requested ... too far / chance / ranged weapon").
+
+## Guard break (v0.25.1)
+
+While the guard is broken the victim takes `[GuardBreak] DamageMult` extra health damage, and one hit can add at most `[StaggerLock] PostureCapPercent` of the posture bar, so a guard break no longer breaks posture instantly.
+
 ## Behavior events (experimental, v0.25)
 
 With `[Stagger] Behavior=1` the DLL sends POISE-compatible animation events instead of the vanilla stagger: light hit -> `poise_small_start`, medium -> `poise_med_start`, poise break -> `poise_large_start`, posture/guard break -> `poise_largest_start`. A `_fwd` suffix is added when the hit came from behind. This requires a Nemesis behavior mod that implements these states (e.g. POISE's Nemesis part). Default is 0 (vanilla stagger, no extra mod needed).

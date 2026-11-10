@@ -93,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 31
+	return 32
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -537,10 +537,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 11 && buildTab == tab
+	if count > 0 && tableRev == 12 && buildTab == tab
 		return
 	endif
-	tableRev = 11
+	tableRev = 12
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -626,7 +626,6 @@ Function BuildTable(int tab)
 	AddSetting(7, 1, "Stagger", "LightPlayer", "Stagger leve no jogador", "Light stagger on player", "Desligado = o jogador nao e travado por golpes leves.", "Off = the player is not locked by light hits.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 0, "Stagger", "LightCooldownMs", "Espaco do stagger leve - NPCs (ms)", "Light stagger spacing - NPCs (ms)", "Tempo minimo entre dois staggers leves.", "Minimum time between two light staggers.", 100.0, 3000.0, 100.0, 700.0)
 	AddSetting(7, 0, "Stagger", "PlayerHeavyMagnitude", "Cambalear do jogador (magnitude)", "Player stumble (magnitude)", "Forca do cambalear para tras quando o poise ou a postura do jogador quebra. Sem queda nem bleedout.", "Strength of the backward stumble when the player's poise or posture breaks. No knockdown or bleedout.", 0.1, 10.0, 0.1, 1.0)
-	AddSetting(7, 0, "Stagger", "Behavior", "Eventos de behavior (POISE)", "Behavior events (POISE)", "1 = envia eventos poise_* (precisa de um mod Nemesis que os trate). 0 = stagger vanilla.", "1 = send poise_* events (needs a Nemesis mod that handles them). 0 = vanilla stagger.", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(7, 0, "Stagger", "PlayerImmuneAfterSeconds", "Imunidade do jogador apos stagger (s)", "Player immunity after stagger (s)", "Depois de levares um stagger do jogo, ficas este tempo sem o levar de novo (para bloquear ou esquivar). 0 = desligado. Staggers pesados do mod passam sempre.", "After the game staggers you, you cannot be staggered again for this long (to block or dodge). 0 = off. The mod heavy staggers always go through.", 0.0, 5.0, 0.1, 1.5)
 	AddSetting(7, 1, "Stagger", "MediumOnPowerAttack", "Stagger medio em golpe forte", "Medium stagger on power attack", "Golpe forte ou de escudo sem bloquear da stagger medio.", "An unblocked power attack or bash causes a medium stagger.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 1, "Knockback", "Enabled", "Empurrao ligado", "Knockback enabled", "Empurrao no stagger pesado, so em condicoes especificas.", "Knockback on heavy stagger, only in specific conditions.", 0.0, 1.0, 1.0, 1.0)
@@ -682,8 +681,13 @@ Function BuildTable(int tab)
 	AddSetting(16, 0, "Perilous", "ParryPosture", "Ataque perigoso: postura no parry", "Perilous: parry posture", "Postura extra (fracao do maximo) que o atacante leva se fizeres parry.", "Extra posture (fraction of max) the attacker takes if you parry.", 0.1, 1.0, 0.05, 0.5)
 	AddSetting(19, 1, "Magic", "DeflectEnabled", "Deflexao de magia", "Magic deflect", "Depois de um parry numa magia, enquanto seguras o bloqueio a magia e devolvida ao conjurador.", "After parrying a spell, while you hold block the spell is reflected to the caster.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(19, 0, "Magic", "DotPoiseMult", "Magia continua: poise/postura (x)", "Continuous magic: poise/posture (x)", "Fracao do poise/postura de magia continua (Chamas...). O golpe conta no maximo 1 vez por segundo.", "Fraction of poise/posture from continuous magic (Flames...). Counts at most once per second.", 0.0, 1.0, 0.05, 0.5)
+	AddSetting(20, 1, "Stagger", "Behavior", "Eventos de behavior (POISE)", "Behavior events (POISE)", "Ligado: usa as animacoes do mod Nemesis NahIDWin Behavior (poise_*). So ligar depois de instala-lo e rodar o Nemesis. Desligado: stagger vanilla.", "On: uses the animations of the NahIDWin Behavior Nemesis mod (poise_*). Turn on only after installing it and running Nemesis. Off: vanilla stagger.", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(14, 1, "Execution", "Enabled", "Execucao garantida", "Guaranteed execution", "Acertar uma arma num alvo com a postura quebrada executa-o (feitico do Inpa). Bosses so depois da 1a vida.", "Hitting a posture-broken target with a weapon executes it (Inpa spell). Bosses only after their 1st life.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Criaturas grandes morrem de vez (sem animacao de execucao).", "Large creatures die outright (no execution animation).", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(14, 1, "Execution", "MeleeOnly", "Executar so com golpe corpo a corpo", "Execute only on melee hits", "Flechas e bestas nunca executam.", "Arrows and crossbow bolts never execute.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(14, 0, "Execution", "Range", "Distancia maxima da execucao", "Maximum execution range", "Distancia (unidades do jogo) maxima entre voce e o alvo para executar. 300 = cerca de 4 m.", "Maximum distance (game units) between you and the target. 300 = about 4 m.", 100.0, 1000.0, 25.0, 300.0)
+	AddSetting(14, 0, "Execution", "Chance", "Chance de execucao (%)", "Execution chance (%)", "Chance de executar a cada golpe normal num alvo em bleedout.", "Chance to execute on each normal hit on a bleeding-out target.", 0.0, 100.0, 5.0, 60.0)
+	AddSetting(14, 0, "Execution", "PowerAttackChance", "Chance com ataque de poder (%)", "Power attack chance (%)", "Chance de executar com um ataque de poder.", "Chance to execute with a power attack.", 0.0, 100.0, 5.0, 100.0)
 	AddSetting(15, 1, "Supreme", "Enabled", "Supremo Rage ligado", "Supreme Rage enabled", "Aura de fogo: tudo o que a furia da, mais dano em area. Cooldown muito longo.", "Fire aura: everything rage gives, plus area damage. Very long cooldown.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(15, 0, "Supreme", "Key", "Tecla do Supremo Rage (codigo)", "Supreme Rage key (code)", "Codigo DirectInput. 35 = H. Prime outra vez para desligar.", "DirectInput code. 35 = H. Press again to turn off.", 1.0, 255.0, 1.0, 35.0)
 	AddSetting(15, 0, "Supreme", "DurationSeconds", "Duracao (s)", "Duration (s)", "", "", 3.0, 30.0, 1.0, 10.0)
@@ -713,6 +717,8 @@ Function BuildTable(int tab)
 	AddSetting(17, 0, "StaggerLock", "SecondsNpc", "Staggerlock - NPC (s)", "Staggerlock - NPC (s)", "Segundos que um NPC fica preso apos o poise chegar a zero.", "Seconds an NPC stays locked after poise reaches zero.", 0.5, 8.0, 0.5, 3.0)
 	AddSetting(17, 0, "StaggerLock", "SecondsPlayer", "Staggerlock - jogador (s)", "Staggerlock - player (s)", "Segundos que o jogador fica preso apos o poise chegar a zero.", "Seconds the player stays locked after poise reaches zero.", 0.5, 8.0, 0.5, 2.0)
 	AddSetting(17, 0, "StaggerLock", "PostureMult", "Staggerlock: dano de postura (x)", "Staggerlock: posture damage (x)", "Multiplicador do dano de postura durante o staggerlock.", "Posture damage multiplier during staggerlock.", 1.0, 6.0, 0.25, 3.0)
+	AddSetting(17, 0, "GuardBreak", "DamageMult", "Dano extra na quebra de guarda (x)", "Guard break extra damage (x)", "Multiplicador do dano de vida enquanto a guarda esta quebrada (staggerlock). 1.0 = sem extra.", "Health damage multiplier while the guard is broken (staggerlock). 1.0 = no extra.", 1.0, 3.0, 0.05, 1.1)
+	AddSetting(17, 0, "StaggerLock", "PostureCapPercent", "Limite de postura por golpe no lock (%)", "Posture per hit cap in lock (%)", "Maximo de postura (em % da barra) que um unico golpe pode somar durante o staggerlock. Evita quebrar a postura de uma vez.", "Max posture (in % of the bar) a single hit can add during staggerlock. Stops one hit from breaking posture.", 0.0, 50.0, 1.0, 15.0)
 	AddSetting(17, 0, "Stagger", "LightCooldownPlayerMs", "Stagger leve - jogador: intervalo (ms)", "Light stagger - player: spacing (ms)", "Intervalo minimo entre staggers leves no jogador.", "Minimum spacing between light staggers on the player.", 300.0, 5000.0, 100.0, 1500.0)
 	AddSetting(19, 0, "Magic", "DeflectCostWeapon", "Deflexao: custo de magia - arma", "Deflect: magicka cost - weapon", "Magicka por ponto de dano defletido com arma.", "Magicka per point of damage deflected with a weapon.", 0.0, 2.0, 0.05, 0.6)
 	AddSetting(19, 0, "Magic", "DeflectCostShield", "Deflexao: custo de magia - escudo", "Deflect: magicka cost - shield", "Magicka por ponto de dano defletido com escudo.", "Magicka per point of damage deflected with a shield.", 0.0, 2.0, 0.05, 0.4)
@@ -721,7 +727,7 @@ EndFunction
 
 ; ---------------- tabs / presets ----------------
 int Function TabOfBlk(int b)
-	if b == 11 || b == 14
+	if b == 11 || b == 14 || b == 20
 		return 0
 	elseif b == 4 || b == 5 || b == 8 || b == 9
 		return 1
@@ -832,7 +838,9 @@ Function ApplyPreset(int tab, int lvl)
 	elseif tab == 3
 		PV("StaggerLock", "SecondsNpc", 4.0, 3.5, 3.0)
 		PV("StaggerLock", "SecondsPlayer", 1.5, 1.75, 2.0)
-		PV("StaggerLock", "PostureMult", 4.0, 3.5, 3.0)
+		PV("StaggerLock", "PostureMult", 2.2, 1.8, 1.5)
+		PV("StaggerLock", "PostureCapPercent", 18.0, 15.0, 12.0)
+		PV("GuardBreak", "DamageMult", 1.25, 1.10, 1.0)
 		PV("Stagger", "PlayerImmuneAfterSeconds", 2.0, 1.75, 1.5)
 		PV("Stagger", "LightCooldownMs", 500.0, 600.0, 700.0)
 		PV("Stagger", "LightCooldownPlayerMs", 2200.0, 1800.0, 1500.0)
@@ -1118,6 +1126,7 @@ Function DrawPage0()
 	Track(li, 7, 0)
 	Hdr("Master preset", "Predefinido geral")
 	Track(AddMenuOption(Tr("Apply to all tabs", "Aplicar a todas as abas"), LevelName(NahIDWinNative.IniGetF("Menu", "Master", 1.0) as int), sFlag), 13, 0)
+	DrawBlock(20, "Behavior (Nemesis)", "Behavior (Nemesis)")
 	Hdr("Parry Setting", "Parry")
 	GSli(1, "Parry & Deflect Timer", "Janela de Parry e Deflexao")
 	GTog(3, "Magic Reflect", "Refletir Magia")
