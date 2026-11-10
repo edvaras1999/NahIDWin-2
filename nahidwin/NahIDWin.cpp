@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.24.4 (exhaustion: less damage, self poise loss; broken posture state)"
+#define PLUGIN_VERSION_STR	"0.25.0 (behavior events poise_*, tiers + direction)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -177,7 +177,7 @@ namespace
 		float	exhaustMaxSeconds, exhaustTargetPct, exhaustRegenFactor, npcSwingRange;
 		float	npcBlockedMult, npcPostureBlockedMult, npcSwingPct, npcBlockPct;
 		float	levelPoise, atkLevelDmg, playerStaggerFloor, creatureDmgMult, giantDmgMult, exhaustBlockMult;
-		int		exhaustBlockActions;
+		int		exhaustBlockActions, behavior;
 		float	exhAtkDmgMult, exhAtkPoiseMult, selfPoiseLight, selfPoiseHeavy, brokenSeconds, brokenDmgMult;
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
@@ -447,6 +447,7 @@ namespace
 		c.atkLevelDmg	= IniF("Damage", "AttackerLevelMult", 0.35f);
 		c.playerStaggerFloor = IniF("Poise", "PlayerStaggerFloor", 0.5f);
 		c.legacyStagger	= IniI("Stagger", "LegacyForcedStagger", 0);
+		c.behavior		= IniI("Stagger", "Behavior", 0);
 		c.creatureDmgMult = IniF("Damage", "CreatureDamageMult", 0.55f);
 		c.giantDmgMult	= IniF("Damage", "GiantDamageMult", 0.40f);
 		c.exhaustBlockMult = IniF("Exhaustion", "BlockedDamageMult", 1.8f);
@@ -1580,6 +1581,35 @@ namespace
 		_MESSAGE("native stagger: %s (returned %d)", ok ? "call finished" : "CRASHED inside the call (caught)", result ? 1 : 0);
 		return ok && result;
 	}
+	// v0.25: with the NahIDWin Behavior mod installed (POISE-style states) the stagger is one event per tier and direction.
+	// tier 1 small, 2 medium, 3 large, 4 largest. The *_fwd event is used when the hit comes from behind (the victim falls forward).
+	bool HitFromBehind(TESObjectREFR * v, TESObjectREFR * a)
+	{
+		if(!v || !a) return false;
+		const float dx = a->pos.x - v->pos.x, dy = a->pos.y - v->pos.y;
+		if(dx * dx + dy * dy < 1.0f) return false;
+		float ang = atan2f(dx, dy) - v->rot.z;
+		while(ang > 3.14159265f) ang -= 6.2831853f;
+		while(ang < -3.14159265f) ang += 6.2831853f;
+		return fabsf(ang) > 1.5707963f;
+	}
+	bool NativeStaggerTier(TESObjectREFR * ref, int tier, TESObjectREFR * attacker)
+	{
+		if(!g_cfg.behavior || tier < 1 || tier > 4) return NativeStagger(ref);
+		static const char * const base[5] = { "", "poise_small_start", "poise_med_start", "poise_large_start", "poise_largest_start" };
+		char ev[48];
+		_snprintf_s(ev, sizeof(ev), _TRUNCATE, "%s%s", base[tier], HitFromBehind(ref, attacker) ? "_fwd" : "");
+		ev[sizeof(ev) - 1] = 0;
+		BSFixedString name(ev);
+		void * holder = (UInt8 *)ref + 0x20;
+		void * fn = ReadVtblSlot(holder, g_cfg.nativeSlot);
+		if(!fn) return false;
+		bool result = false;
+		const bool ok = CallNotify(holder, fn, &name, &result);
+		static volatile LONG tl = 0;
+		if(g_cfg.diag && InterlockedIncrement(&tl) <= 60) _MESSAGE("behavior stagger: '%s' on %08X (%s, returned %d)", ev, ref->formID, ok ? "ok" : "CRASHED inside the call (caught)", result ? 1 : 0);
+		return ok && result;
+	}
 	// Staggerlock: o stagger pesado repete-se enquanto dura o lock, e repete-se logo se o grafo o recusar.
 	struct LockJob { DWORD nextAt; int fails; };
 	std::map<UInt32, LockJob> g_lockJobs;
@@ -2097,7 +2127,7 @@ namespace
 		if(!ok) return;
 		_MESSAGE("GUARD BREAK: %08X ran out of stamina while blocking -> poise 0, staggerlock", h.victim.id);
 		if(h.victim.isPlayer) { g_exhaustBlockUntil = lockEnd; }
-		const bool okS = NativeStagger((TESObjectREFR *)va);
+		const bool okS = NativeStaggerTier((TESObjectREFR *)va, 4, (TESObjectREFR *)h.attackerActor);
 		if(!okS || g_cfg.legacyStagger) AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
 		HudFlash((TESObjectREFR *)va);
 	}
@@ -2767,7 +2797,7 @@ namespace
 			PerilousClear(h.attackerId);
 			if(ak && h.attackerActor)
 			{
-				if(g_cfg.staggerMode == 1 && ak != 4) NativeStagger((TESObjectREFR *)h.attackerActor);
+				if(g_cfg.staggerMode == 1 && ak != 4) NativeStaggerTier((TESObjectREFR *)h.attackerActor, 3, h.victimRef);
 				else SendStaggerEvent((TESObjectREFR *)h.attackerActor, h.victim.id, ak);
 				if(ak == 4) _MESSAGE("POSTURE BREAK (by parry) -> BLEEDOUT: %08X", h.attacker.id);
 			}
@@ -2800,7 +2830,12 @@ namespace
 		{
 			if(kind == 7) _MESSAGE("EXHAUSTION: victim=%08X%s ran out of stamina", h.victim.id, h.victim.isPlayer ? "(player)" : "");
 			if(kind >= 3 && kind <= 5) _MESSAGE("%s: victim=%08X attacker=%08X (mode %d)", kind == 4 ? "POSTURE BREAK -> BLEEDOUT" : (kind == 5 ? "POISE BREAK -> heavy stagger + KNOCKBACK" : "POISE BREAK -> heavy stagger"), h.victim.id, h.attackerId, g_cfg.staggerMode);
-			if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7 && !(h.victim.isPlayer && kind == 3))
+			if(g_cfg.behavior && g_cfg.staggerMode == 1 && (kind == 1 || kind == 2 || kind == 3))
+			{
+				const int tier = (kind == 3) ? (postureBroke ? 4 : 3) : kind;
+				NativeStaggerTier(h.victimRef, tier, (TESObjectREFR *)h.attackerActor);
+			}
+			else if(g_cfg.staggerMode == 1 && kind != 4 && kind != 5 && kind != 7 && !(h.victim.isPlayer && kind == 3))
 			{
 				const bool okS = NativeStagger(h.victimRef);
 				if(kind == 3 && ((poiseBroke && g_cfg.legacyStagger) || !okS)) AddLockJob(h.victim.id, now, (DWORD)(okS ? g_cfg.lockRepeatMs : g_cfg.lockRetryMs));
@@ -4132,7 +4167,7 @@ namespace
 		if(broke)
 		{
 			TESForm * f = LookupFormByID(0x14);
-			if(f) { _MESSAGE("SELF POISE BREAK: exhausted player ran out of poise by swinging"); SendStaggerEvent((TESObjectREFR *)f, 0, 3); }
+			if(f) { _MESSAGE("SELF POISE BREAK: exhausted player ran out of poise by swinging"); if(g_cfg.behavior) NativeStaggerTier((TESObjectREFR *)f, 3, NULL); else SendStaggerEvent((TESObjectREFR *)f, 0, 3); }
 		}
 	}
 
