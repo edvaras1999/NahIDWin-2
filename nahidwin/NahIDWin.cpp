@@ -947,9 +947,14 @@ namespace
 		if(!id || !*pl) return 0;
 		DataHandler * dh = *((DataHandler **)0x012E2CB8);
 		if(!dh) return 0;
-		const ModInfo * mi = dh->LookupModByName(pl);
-		if(!mi || mi->modIndex == 0xFF) return 0;
-		return ((UInt32)mi->modIndex << 24) | (id & 0x00FFFFFF);
+		// procura o plugin na lista de carregados (sem DataHandler::LookupModByName, que nao esta ligado na DLL)
+		const UInt32 n = dh->modList.loadedModCount;
+		for(UInt32 i = 0; i < n && i < 0xFF; i++)
+		{
+			const ModInfo * mi = dh->modList.loadedMods[i];
+			if(mi && _stricmp(mi->name, pl) == 0) return ((UInt32)i << 24) | (id & 0x00FFFFFF);
+		}
+		return 0;
 	}
 	void LoadBossList()
 	{
