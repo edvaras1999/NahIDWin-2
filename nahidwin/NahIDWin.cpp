@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.25.3 (behavior animation per situation)"
+#define PLUGIN_VERSION_STR	"0.25.5 (exhaustion: recovery only when you stop swinging)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -220,7 +220,8 @@ namespace
 		// exaustao: estamina a zero
 		int		exhaustEnabled;
 		float	exhaustSeconds;			// tempo sem poder atacar nem regenerar
-		float	exhaustCooldown;		// minimo entre duas exaustoes
+		float	exhaustCooldown;
+		float	exhStopSec; int exhReenter;		// minimo entre duas exaustoes
 		int		exhaustNpc;				// NPCs tambem (levam stagger pesado)
 		float	exhaustDmgMult;			// poise e postura: dano a mais enquanto exausto (jogador e NPC)
 		float	npcExhaustSeconds;		// duracao da exaustao de um NPC (so para o dano a mais)
@@ -298,6 +299,7 @@ namespace
 		float	perilCooldown, perilDmgMult, perilParryPosture, perilRange;
 		float	magicDotMult;
 		float	bossHealthPct, bossInvuln;
+		int		bossLevelRule;
 		// Supremo Rage (aura)
 		int		supEnabled, supKey;
 		float	supSeconds, supCooldown, supCostPerSec, supRadius, supDps;
@@ -535,6 +537,8 @@ namespace
 		c.exhaustEnabled	= IniI("Exhaustion", "Enabled", 1);
 		c.exhaustSeconds	= IniF("Exhaustion", "Seconds", 5.0f);
 		c.exhaustCooldown	= IniF("Exhaustion", "CooldownSeconds", 8.0f);
+		c.exhStopSec		= IniF("Exhaustion", "StopSeconds", 1.5f);
+		c.exhReenter		= IniI("Exhaustion", "ReenterOnSwing", 1);
 		c.exhaustNpc		= IniI("Exhaustion", "NPCs", 1);
 		c.exhaustDmgMult	= IniF("Exhaustion", "PoiseDamageMult", 1.5f);
 		c.npcExhaustSeconds	= IniF("Exhaustion", "NpcSeconds", 5.0f);
@@ -638,6 +642,7 @@ namespace
 		c.perilRange	= IniF("Perilous", "Range", 700.0f);
 		c.bossHealthPct	= IniF("Bosses", "HealthPercent", 100.0f);
 		c.bossInvuln	= IniF("Bosses", "InvulnSeconds", 3.0f);
+		c.bossLevelRule	= IniI("Bosses", "UseLevelRule", 0);
 		c.supEnabled	= IniI("Supreme", "Enabled", 1);
 		c.supKey		= IniI("Supreme", "Key", 35);
 		c.supSeconds	= IniF("Supreme", "DurationSeconds", 10.0f);
@@ -923,7 +928,58 @@ namespace
 		int		level;
 	};
 
-	// Boss = NPC com nivel >= nivel do jogador + margem (e que nao e companheiro do jogador).
+	// ---- v0.25.4: lista de bosses ([BossList] no INI, mesmo formato do TrueHUD: NPC=Plugin.esm:0xID, Race=..., NPCBlacklist=...)
+	std::set<UInt32>	g_bossNpc, g_bossRace, g_bossNpcBL, g_bossLogged;
+	bool				g_bossListLoaded = false;
+	UInt32 ResolveFormRef(const char * line)
+	{
+		char buf[256];
+		strncpy(buf, line, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0;
+		char * semi = strchr(buf, ';');
+		if(semi) *semi = 0;
+		char * colon = strrchr(buf, ':');
+		if(!colon) return 0;
+		*colon = 0;
+		char * pl = buf;
+		while(*pl == ' ' || *pl == '\t') pl++;
+		for(char * e = pl + strlen(pl); e > pl && (e[-1] == ' ' || e[-1] == '\t'); ) *--e = 0;
+		const UInt32 id = (UInt32)strtoul(colon + 1, NULL, 0);
+		if(!id || !*pl) return 0;
+		DataHandler * dh = *((DataHandler **)0x012E2CB8);
+		if(!dh) return 0;
+		const ModInfo * mi = dh->LookupModByName(pl);
+		if(!mi || mi->modIndex == 0xFF) return 0;
+		return ((UInt32)mi->modIndex << 24) | (id & 0x00FFFFFF);
+	}
+	void LoadBossList()
+	{
+		g_bossNpc.clear(); g_bossRace.clear(); g_bossNpcBL.clear();
+		FILE * f = fopen(g_iniPath, "r");
+		if(!f) { g_bossListLoaded = true; return; }
+		char ln[512];
+		bool inSec = false;
+		int nN = 0, nR = 0, nB = 0;
+		while(fgets(ln, sizeof(ln), f))
+		{
+			char * t = ln;
+			while(*t == ' ' || *t == '\t') t++;
+			if(*t == '[') { inSec = (_strnicmp(t, "[BossList]", 10) == 0); continue; }
+			if(!inSec || *t == ';' || *t == '#' || *t == '\r' || *t == '\n' || !*t) continue;
+			char * eq = strchr(t, '=');
+			if(!eq) continue;
+			*eq = 0;
+			for(char * e = t + strlen(t); e > t && (e[-1] == ' ' || e[-1] == '\t'); ) *--e = 0;
+			const UInt32 fid = ResolveFormRef(eq + 1);
+			if(!fid) continue;
+			if(_stricmp(t, "NPC") == 0) { g_bossNpc.insert(fid); nN++; }
+			else if(_stricmp(t, "Race") == 0) { g_bossRace.insert(fid); nR++; }
+			else if(_stricmp(t, "NPCBlacklist") == 0) { g_bossNpcBL.insert(fid); nB++; }
+		}
+		fclose(f);
+		g_bossListLoaded = true;
+		_MESSAGE("boss list loaded: %d NPCs, %d races, %d blacklisted", nN, nR, nB);
+	}
+	// Boss = NPC da lista (NPC= / Race=), exceto lista negra. Opcional: regra de nivel (UseLevelRule).
 	bool IsBossActor(Actor * a)
 	{
 		__try
@@ -932,10 +988,24 @@ namespace
 			if(a->flags1 & Actor::kFlags_IsPlayerTeammate) return false;
 			TESForm * b = a->baseForm;
 			if(!b || b->formType != kFormType_NPC) return false;
-			Actor * pl = (Actor *)Engine::Player();
-			if(!pl) return false;
-			// boss = inimigo com N niveis acima do jogador (margem configuravel)
-			return (int)CALL_MEMBER_FN(a, GetLevel)() >= (int)CALL_MEMBER_FN(pl, GetLevel)() + g_cfg.bossLevelMargin;
+			const char * why = NULL;
+			Lock();
+			if(!g_bossListLoaded) LoadBossList();
+			if(g_bossNpcBL.count(b->formID)) { Unlock(); return false; }
+			if(g_bossNpc.count(b->formID)) why = "NPC list";
+			else if(a->race && g_bossRace.count(a->race->formID)) why = "race list";
+			Unlock();
+			if(!why && g_cfg.bossLevelRule)
+			{
+				Actor * pl = (Actor *)Engine::Player();
+				if(pl && (int)CALL_MEMBER_FN(a, GetLevel)() >= (int)CALL_MEMBER_FN(pl, GetLevel)() + g_cfg.bossLevelMargin) why = "level rule";
+			}
+			if(!why) return false;
+			Lock();
+			const bool first = g_bossLogged.insert(a->formID).second && g_bossLogged.size() <= 60;
+			Unlock();
+			if(first) _MESSAGE("boss: %08X (base %08X) via %s", a->formID, b->formID, why);
+			return true;
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 	}
@@ -1764,7 +1834,7 @@ namespace
 		g_prevPlayerRageState = -1;
 		g_powerUntil = 0;
 		g_livesUsed = 0; g_invulnUntil = 0; g_supUntil = 0; g_supReadyAt = 0;
-		g_essSent = -1; g_essLast = 0; g_bossMarked.clear(); memset(g_recentAtk, 0, sizeof(g_recentAtk));
+		g_essSent = -1; g_essLast = 0; g_bossMarked.clear(); g_bossLogged.clear(); g_bossListLoaded = false; memset(g_recentAtk, 0, sizeof(g_recentAtk));
 		_MESSAGE("%s: cleared %d tracked actors", why, (int)n);
 	}
 
@@ -4149,6 +4219,7 @@ namespace
 	// Regeneracao de estamina do jogador (% para StaminaRateMult, -1 = nao mexer), com combate:
 	// exausto = 0; ha pouco bateu = 0 (tem de parar); a segurar o bloqueio = mais lenta; em combate = mais rapida.
 	volatile LONG g_playerExhausted = 0;
+	volatile DWORD g_lastExhSwing = 0;	// ultimo golpe dado exausto (v0.25.5)
 	float N_GetCombatRegen(StaticFunctionTag *, bool inCombat)
 	{
 		if(!g_cfg.stamEnabled) return -1.0f;
@@ -4195,7 +4266,20 @@ namespace
 	}
 	float N_GetExhaustMax(StaticFunctionTag *) { return g_cfg.exhaustMaxSeconds; }
 	float N_GetExhaustTarget(StaticFunctionTag *) { return g_cfg.exhaustTargetPct; }
-	void N_ExhaustEnded(StaticFunctionTag *) { g_playerExhausted = 0; }
+	void N_ExhaustEnded(StaticFunctionTag *)
+	{
+		g_playerExhausted = 0;
+		// o poise nao enche logo a seguir: reinicia o atraso de regeneracao
+		Lock();
+		{ StateMap::iterator it = g_states.find(0x14); if(it != g_states.end()) it->second.lastHit = GetTickCount(); }
+		Unlock();
+	}
+	// segundos desde o ultimo golpe dado exausto (999 = nenhum recente)
+	float N_ExhaustSwingAgo(StaticFunctionTag *)
+	{
+		if(!g_lastExhSwing) return 999.0f;
+		return (float)(GetTickCount() - g_lastExhSwing) / 1000.0f;
+	}
 
 	float N_GetExhaustSeconds(StaticFunctionTag *)
 	{
@@ -4215,7 +4299,8 @@ namespace
 		Lock();
 		{
 			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now);
-			if(now >= st.exhaustReadyAt && now >= st.bleedUntil && now >= st.rageUntil)
+			const bool swingingNow = g_cfg.exhReenter && g_lastExhSwing && (LONG)(now - g_lastExhSwing) < 3000;
+			if((now >= st.exhaustReadyAt || swingingNow) && now >= st.bleedUntil && now >= st.rageUntil)
 			{
 				st.exhaustReadyAt = now + (DWORD)(g_cfg.exhaustCooldown * 1000.0f);
 				st.exhaustUntil = now + (DWORD)(g_cfg.exhaustSeconds * 1000.0f);
@@ -4231,6 +4316,7 @@ namespace
 	void N_SelfPoise(StaticFunctionTag *, bool heavy)
 	{
 		if(!g_cfg.enabled || !g_playerExhausted) return;
+		g_lastExhSwing = GetTickCount();
 		const float pct = heavy ? g_cfg.selfPoiseHeavy : g_cfg.selfPoiseLight;
 		if(!(pct > 0.0f)) return;
 		const DWORD now = GetTickCount();
@@ -4365,6 +4451,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustMax", "NahIDWinNative", N_GetExhaustMax, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustTarget", "NahIDWinNative", N_GetExhaustTarget, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("ExhaustEnded", "NahIDWinNative", N_ExhaustEnded, registry));
+		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("ExhaustSwingAgo", "NahIDWinNative", N_ExhaustSwingAgo, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("TryExhaust", "NahIDWinNative", N_TryExhaust, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, void>("PowerStart", "NahIDWinNative", N_PowerStart, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, float>("SetWornWeight", "NahIDWinNative", N_SetWornWeight, registry));
