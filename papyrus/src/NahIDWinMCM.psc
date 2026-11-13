@@ -93,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 32
+	return 34
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -537,10 +537,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 12 && buildTab == tab
+	if count > 0 && tableRev == 14 && buildTab == tab
 		return
 	endif
-	tableRev = 12
+	tableRev = 14
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -615,6 +615,8 @@ Function BuildTable(int tab)
 	AddSetting(4, 0, "Exhaustion", "SelfPoiseHeavyPercent", "Exaustao: poise perdido por golpe forte (%)", "Exhaustion: poise lost per heavy swing (%)", "Idem para golpes fortes.", "Same for heavy swings.", 0.0, 80.0, 1.0, 20.0)
 	AddSetting(4, 0, "Exhaustion", "PoiseDamageMult", "Exaustao: dano de poise/postura (x)", "Exhaustion: poise/posture damage (x)", "Quem esta exausto leva mais dano de poise e postura.", "Whoever is exhausted takes more poise and posture damage.", 1.0, 3.0, 0.1, 1.5)
 	AddSetting(4, 0, "Exhaustion", "RecoverStamina", "Exaustao: estamina recuperada no fim", "Exhaustion: stamina recovered at the end", "Estamina que o jogador recupera quando a exaustao acaba.", "Stamina the player gets back when exhaustion ends.", 0.0, 200.0, 5.0, 50.0)
+	AddSetting(4, 0, "Exhaustion", "StopSeconds", "Exaustao: parar para recuperar (s)", "Exhaustion: stop to recover (s)", "Segundos sem atacar para receber a estamina de volta. Quem insiste em bater nao recupera.", "Seconds without swinging to get the stamina back. Keep swinging and you do not recover.", 0.0, 5.0, 0.1, 1.5)
+	AddSetting(4, 1, "Exhaustion", "ReenterOnSwing", "Exaustao: reentrar se continuar a bater", "Exhaustion: re-enter if you keep swinging", "O cooldown nao impede nova exaustao enquanto voce continua a bater.", "The cooldown does not stop a new exhaustion while you keep swinging.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(4, 0, "Exhaustion", "NpcStaminaFloorPercent", "NPC: piso de estamina (%)", "NPC: stamina floor (%)", "O dreno de estamina do mod nao leva o NPC abaixo disto (evita que recuem/fujam). Ao chegar la entra em exaustao. 0 = sem piso.", "The mods stamina drain never takes an NPC below this (stops them retreating/fleeing). At the floor it gets exhausted. 0 = no floor.", 0.0, 60.0, 5.0, 25.0)
 	AddSetting(4, 0, "Exhaustion", "CooldownSeconds", "Recarga da exaustao (s)", "Exhaustion cooldown (s)", "Tempo minimo entre duas exaustoes.", "Minimum time between two exhaustions.", 0.0, 30.0, 1.0, 8.0)
 	AddSetting(4, 1, "Exhaustion", "NPCs", "Exaustao nos NPCs", "Exhaustion on NPCs", "NPCs sem estamina levam stagger pesado.", "NPCs with no stamina get a heavy stagger.", 0.0, 1.0, 1.0, 1.0)
@@ -663,6 +665,10 @@ Function BuildTable(int tab)
 	AddSetting(13, 2, "HUD", "TargetPosV", "Alvo: posicao vertical", "Target: vertical position", "Cima, centro ou baixo do ecra.", "Top, center or bottom of the screen.", 0.0, 2.0, 1.0, 0.0)
 	AddSetting(13, 0, "HUD", "TargetWidth", "Alvo: largura (0 = 200)", "Target: width (0 = 200)", "", "", 0.0, 600.0, 5.0, 0.0)
 	AddSetting(13, 1, "HUD", "TargetAnchor", "Alvo: seguir a barra de vida do jogo", "Target: follow the game health bar", "Ligado = por baixo do nome do inimigo (se a barra do jogo estiver visivel).", "On = under the enemy name (if the game bar is visible).", 0.0, 1.0, 1.0, 0.0)
+	AddSetting(13, 0, "HUD", "TargetShiftX", "Alvo: deslocar na horizontal", "Target: shift horizontally", "Move as barras do alvo para os lados (pixels). Usado quando NAO segue a barra de vida do jogo.", "Moves the target bars sideways (pixels). Used when NOT following the game health bar.", -400.0, 400.0, 5.0, 0.0)
+	AddSetting(13, 0, "HUD", "TargetShiftY", "Alvo: deslocar na vertical", "Target: shift vertically", "Altura das barras do alvo (pixels, + desce). Use para afastar da barra de vida dos bosses (Centro + Topo).", "Height of the target bars (pixels, + moves down). Use to clear the boss health bar (Center + Top).", -300.0, 500.0, 5.0, 55.0)
+	AddSetting(13, 0, "HUD", "TargetOffsetX", "Alvo (seguindo a vida): horizontal", "Target (following health): horizontal", "Deslocamento quando segue a barra de vida do jogo.", "Offset when following the game health bar.", -300.0, 300.0, 2.0, 0.0)
+	AddSetting(13, 0, "HUD", "TargetOffsetY", "Alvo (seguindo a vida): vertical", "Target (following health): vertical", "Deslocamento vertical quando segue a barra de vida do jogo.", "Vertical offset when following the game health bar.", -200.0, 300.0, 2.0, 22.0)
 	AddSetting(14, 1, "Lives", "Enabled", "Vidas extra ligadas", "Extra lives enabled", "Quando morreres, usas uma vida extra se tiveres alguma. Enchem ao dormir numa cama.", "When you would die, an extra life is used if you have one. They refill when you sleep in a bed.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 0, "Lives", "Level2", "Nivel da 2a vida", "Level of the 2nd life", "Nivel do jogador para desbloquear a segunda vida.", "Player level to unlock the second life.", 1.0, 81.0, 1.0, 30.0)
 	AddSetting(14, 0, "Lives", "Level3", "Nivel da 3a vida", "Level of the 3rd life", "Nivel do jogador para desbloquear a terceira vida.", "Player level to unlock the third life.", 1.0, 81.0, 1.0, 60.0)

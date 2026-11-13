@@ -627,8 +627,12 @@ Function CheckExhaust()
 	endif
 	float tgtP = NahIDWinNative.GetExhaustTarget()
 	bool done = false
+	float stopSec = NahIDWinNative.IniGetF("Exhaustion", "StopSeconds", 1.5)
+	bool stopped = NahIDWinNative.ExhaustSwingAgo() >= stopSec
 	if el >= exhMin
-		if el >= exhMax || pl.GetActorValue("Stamina") >= pl.GetActorValueMax("Stamina") * tgtP / 100.0
+		if el >= exhMax
+			done = true
+		elseif stopped && pl.GetActorValue("Stamina") >= pl.GetActorValueMax("Stamina") * tgtP / 100.0
 			done = true
 		endif
 	endif
@@ -653,6 +657,10 @@ Function EndExhaust()
 	endif
 	float rec = NahIDWinNative.IniGetF("Exhaustion", "RecoverStamina", 50.0)
 	float curSt = pl.GetActorValue("Stamina")
+	; so recebe o bonus quem parou de bater; quem insistiu ate ao limite fica so com a regeneracao normal
+	if NahIDWinNative.ExhaustSwingAgo() < NahIDWinNative.IniGetF("Exhaustion", "StopSeconds", 1.5)
+		rec = 0.0
+	endif
 	if rec > curSt
 		pl.RestoreActorValue("Stamina", rec - curSt)
 	endif

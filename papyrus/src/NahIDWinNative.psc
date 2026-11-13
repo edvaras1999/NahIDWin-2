@@ -20,6 +20,7 @@ float Function GetSwingCost(int mode, int rightType, float weight) global native
 float Function GetExhaustMax() global native
 float Function GetExhaustTarget() global native
 Function ExhaustEnded() global native
+float Function ExhaustSwingAgo() global native
 Function SelfPoise(bool heavy) global native
 float Function GetKnockbackForce() global native
 
