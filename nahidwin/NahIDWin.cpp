@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.25.5 (exhaustion: recovery only when you stop swinging)"
+#define PLUGIN_VERSION_STR	"0.26.0 (controls watchdog, repair, performance modes)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -182,7 +182,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6];
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -737,9 +737,20 @@ namespace
 		c.dumpVtable	= IniI("Diagnostics", "DumpVtable", 0);
 		c.logPlayerEvents = IniI("Diagnostics", "LogPlayerEvents", 1);
 
+		// v0.26: modos de desempenho (0 normal, 1 leve, 2 minimo)
+		c.perfMode = IniI("Performance", "Mode", 0);
+		c.tickMs = 0;
+		if(c.perfMode >= 1)
+		{
+			c.diag = 0; c.hitchMs = 0;
+			c.tickMs = (c.perfMode == 1) ? 60 : 120;
+			if(c.perfMode >= 2) c.wEnabled = 0;
+		}
+
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if(GetFileAttributesExA(g_iniPath, GetFileExInfoStandard, &fad)) g_iniTime = fad.ftLastWriteTime;
 
+		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d)", c.perfMode, c.tickMs, c.diag);
 		_MESSAGE("config: enabled=%d player=%d npcs=%d staggerMode=%d (slot %d, '%s') posture=%d (difficulty %.2f) hud=%d bar=%d diag=%d  [%s]",
 			c.enabled, c.applyPlayer, c.applyNPCs, c.staggerMode, c.nativeSlot, c.nativeEvent, c.postureEnabled, c.postureDifficulty, c.hudEnabled, c.hudBar, c.diag, g_iniPath);
 		ApplyHealthGMST();
@@ -4715,13 +4726,18 @@ namespace
 		const bool ready = g_cfg.wEnabled && g_dataLoaded && Engine::Player() && !AnyMenuOpen();
 		PutBool(o, "ready", ready);
 		if(!ready) return;
-		TickSupreme(now);
-		TickLockJobs(now);
-		TickNpcSwings(now);
-		TickParryCap(now);
-		TickPerilous(now);
-		InpaCtlTick(now);
-		TickFleeWatch(now);
+		static DWORD lastTicks = 0;
+		if(g_cfg.tickMs <= 0 || now - lastTicks >= (DWORD)g_cfg.tickMs)
+		{
+			lastTicks = now;
+			TickSupreme(now);
+			TickLockJobs(now);
+			TickNpcSwings(now);
+			TickParryCap(now);
+			TickPerilous(now);
+			InpaCtlTick(now);
+			TickFleeWatch(now);
+		}
 		if(g_execTick && now - g_execTick < 15000)
 		{
 			// vigia da vida do jogador depois de uma execucao (para descobrir o que o mata)
