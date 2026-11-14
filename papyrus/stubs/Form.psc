@@ -9,6 +9,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName) native
 Event OnKeyDown(int keyCode) native
 Event OnUpdate() native
 Function RegisterForSleep() native
+Function SendModEvent(string eventName, string strArg = "", float numArg = 0.0) native
 Event OnSleepStart(float afSleepStartTime, float afDesiredSleepEndTime) native
 Event OnSleepStop(bool abInterrupted) native
 int Function GetFormID() native

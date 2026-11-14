@@ -7,3 +7,12 @@ Function DisablePlayerControls(bool abMovement = true, bool abFighting = true, b
 Function EnablePlayerControls(bool abMovement = true, bool abFighting = true, bool abCamSwitch = true, bool abLooking = true, bool abSneaking = true, bool abMenu = true, bool abActivate = true, bool abJournalTabs = true, int aiDisablePOVType = 0) global native
 Function SetGameSettingFloat(string asGameSetting, float afValue) global native
 float Function GetGameSettingFloat(string asGameSetting) global native
+bool Function IsMovementControlsEnabled() global native
+bool Function IsFightingControlsEnabled() global native
+bool Function IsLookingControlsEnabled() global native
+bool Function IsMenuControlsEnabled() global native
+bool Function IsActivateControlsEnabled() global native
+bool Function IsJournalControlsEnabled() global native
+bool Function IsSneakingControlsEnabled() global native
+bool Function IsCamSwitchControlsEnabled() global native
+bool Function IsPOVSwitchControlsEnabled() global native
