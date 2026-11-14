@@ -93,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 34
+	return 35
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -537,10 +537,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 14 && buildTab == tab
+	if count > 0 && tableRev == 15 && buildTab == tab
 		return
 	endif
-	tableRev = 14
+	tableRev = 15
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -688,6 +688,9 @@ Function BuildTable(int tab)
 	AddSetting(19, 1, "Magic", "DeflectEnabled", "Deflexao de magia", "Magic deflect", "Depois de um parry numa magia, enquanto seguras o bloqueio a magia e devolvida ao conjurador.", "After parrying a spell, while you hold block the spell is reflected to the caster.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(19, 0, "Magic", "DotPoiseMult", "Magia continua: poise/postura (x)", "Continuous magic: poise/posture (x)", "Fracao do poise/postura de magia continua (Chamas...). O golpe conta no maximo 1 vez por segundo.", "Fraction of poise/posture from continuous magic (Flames...). Counts at most once per second.", 0.0, 1.0, 0.05, 0.5)
 	AddSetting(20, 1, "Stagger", "Behavior", "Eventos de behavior (POISE)", "Behavior events (POISE)", "Ligado: usa as animacoes do mod Nemesis NahIDWin Behavior (poise_*). So ligar depois de instala-lo e rodar o Nemesis. Desligado: stagger vanilla.", "On: uses the animations of the NahIDWin Behavior Nemesis mod (poise_*). Turn on only after installing it and running Nemesis. Off: vanilla stagger.", 0.0, 1.0, 1.0, 0.0)
+	AddSetting(20, 1, "Safety", "ControlsWatchdog", "Vigia de controles (log)", "Controls watchdog (log)", "Regista no log quando algum controle do jogador (menu, movimento, etc.) fica bloqueado. Ajuda a achar o mod que impede de salvar.", "Logs when a player control (menu, movement, etc.) gets blocked. Helps find the mod that stops saving.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(20, 1, "Safety", "AutoFix", "Reativar controles presos (automatico)", "Auto re-enable stuck controls", "Se os controles ficarem bloqueados depois do combate (e fora de menus), o mod tenta reativa-los. Pode interferir em cenas de missoes.", "If controls stay blocked after combat (outside menus) the mod tries to re-enable them. May interfere with quest scenes.", 0.0, 1.0, 1.0, 0.0)
+	AddSetting(20, 0, "Performance", "Mode", "Modo de desempenho (0 normal, 1 leve, 2 minimo)", "Performance mode (0 normal, 1 light, 2 minimal)", "Leve: sem log de depuracao, ciclos mais lentos. Minimo: tambem sem as nossas barras no HUD. Reinicie o jogo para aplicar tudo.", "Light: no debug log, slower loops. Minimal: also no own HUD bars. Restart the game to apply everything.", 0.0, 2.0, 1.0, 0.0)
 	AddSetting(14, 1, "Execution", "Enabled", "Execucao garantida", "Guaranteed execution", "Acertar uma arma num alvo com a postura quebrada executa-o (feitico do Inpa). Bosses so depois da 1a vida.", "Hitting a posture-broken target with a weapon executes it (Inpa spell). Bosses only after their 1st life.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Criaturas grandes morrem de vez (sem animacao de execucao).", "Large creatures die outright (no execution animation).", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "MeleeOnly", "Executar so com golpe corpo a corpo", "Execute only on melee hits", "Flechas e bestas nunca executam.", "Arrows and crossbow bolts never execute.", 0.0, 1.0, 1.0, 1.0)
@@ -1132,7 +1135,8 @@ Function DrawPage0()
 	Track(li, 7, 0)
 	Hdr("Master preset", "Predefinido geral")
 	Track(AddMenuOption(Tr("Apply to all tabs", "Aplicar a todas as abas"), LevelName(NahIDWinNative.IniGetF("Menu", "Master", 1.0) as int), sFlag), 13, 0)
-	DrawBlock(20, "Behavior (Nemesis)", "Behavior (Nemesis)")
+	DrawBlock(20, "Behavior, safety & performance", "Behavior, seguranca e desempenho")
+	Track(AddTextOption(Tr("Repair game / prepare to uninstall", "Reparar jogo / Preparar para desinstalar"), Tr("[ Run ]", "[ Executar ]"), 0), 30, 0)
 	Hdr("Parry Setting", "Parry")
 	GSli(1, "Parry & Deflect Timer", "Janela de Parry e Deflexao")
 	GTog(3, "Magic Reflect", "Refletir Magia")
@@ -1235,6 +1239,9 @@ Event OnOptionSelect(int a_option)
 		endif
 		NahIDWinNative.IniSetF("Menu", "Language", nv)
 		ForcePageReset()
+	elseif k == 30
+		SendModEvent("NahIDWin_Repair", "", 0.0)
+		Debug.Notification(Tr("Repair sent. Save the game now, then you can uninstall the mod.", "Reparo enviado. Salve o jogo agora; depois pode desinstalar o mod."))
 	elseif k == 10
 		float od = 0.0
 		if r == 3
