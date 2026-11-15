@@ -93,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 35
+	return 36
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -537,10 +537,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 15 && buildTab == tab
+	if count > 0 && tableRev == 16 && buildTab == tab
 		return
 	endif
-	tableRev = 15
+	tableRev = 16
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -604,15 +604,13 @@ Function BuildTable(int tab)
 	AddSetting(3, 0, "Rage", "NPCChancePercent", "NPC: probabilidade (%)", "NPC: chance (%)", "Probabilidade por golpe recebido quando a condicao se cumpre.", "Chance per hit received when the condition is met.", 0.0, 100.0, 5.0, 50.0)
 	AddSetting(3, 0, "Rage", "NPCCooldownSeconds", "NPC: recarga (s)", "NPC: cooldown (s)", "Tempo minimo entre duas furias do mesmo NPC.", "Minimum time between two rages of the same NPC.", 5.0, 180.0, 5.0, 45.0)
 	AddSetting(3, 0, "Rage", "NPCCostPercent", "NPC: custo (%)", "NPC: cost (%)", "0 = gratis para os NPCs.", "0 = free for NPCs.", 0.0, 50.0, 1.0, 0.0)
-	AddSetting(4, 1, "Exhaustion", "Enabled", "Exaustao ligada", "Exhaustion enabled", "Estamina a zero: nao podes atacar nem regenerar por um tempo.", "Stamina at zero: you cannot attack or regenerate for a while.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(4, 1, "Exhaustion", "Enabled", "Exaustao ligada", "Exhaustion enabled", "Estamina a zero: sem regeneracao por um tempo; quem continua a bater cambaleia (auto-stagger). Sem penalidade de velocidade.", "Stamina at zero: no regeneration for a while; keep swinging and you stumble (auto-stagger). No speed penalty.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(4, 0, "Exhaustion", "Seconds", "Exaustao: duracao minima (s)", "Exhaustion: minimum duration (s)", "Tempo minimo sem regenerar estamina.", "Minimum time without stamina regeneration.", 1.0, 10.0, 0.5, 2.0)
-	AddSetting(4, 0, "Exhaustion", "SpeedFactor", "Exaustao: velocidade de movimento (x)", "Exhaustion: movement speed (x)", "0.7 = 70% da velocidade enquanto exausto. 1 = sem reducao.", "0.7 = 70% speed while exhausted. 1 = no slowdown.", 0.1, 1.0, 0.05, 0.7)
-	AddSetting(4, 0, "Exhaustion", "AttackSpeedFactor", "Exaustao: velocidade de ataque (x)", "Exhaustion: attack speed (x)", "0.7 = ataques a 70% da velocidade enquanto exausto. 1 = sem reducao.", "0.7 = attacks at 70% speed while exhausted. 1 = no slowdown.", 0.1, 1.0, 0.05, 0.7)
 	AddSetting(4, 0, "Exhaustion", "BlockedDamageMult", "Exaustao: dano que passa o bloqueio (x)", "Exhaustion: damage through the block (x)", "Exausto, o bloqueio absorve menos: o dano que passa multiplica por isto (1 = sem efeito).", "While exhausted the block absorbs less: damage that gets through is multiplied by this (1 = no effect).", 1.0, 4.0, 0.1, 1.8)
 	AddSetting(4, 0, "Exhaustion", "AttackDamageMult", "Exaustao: dano que o jogador causa (x)", "Exhaustion: damage the player deals (x)", "0.4 = o jogador exausto causa 40% do dano (-60%).", "0.4 = the exhausted player deals 40% damage (-60%).", 0.1, 1.0, 0.05, 0.4)
 	AddSetting(4, 0, "Exhaustion", "AttackPoiseMult", "Exaustao: poise/postura que causa (x)", "Exhaustion: poise/posture dealt (x)", "Multiplica o dano de poise e postura que o jogador exausto causa.", "Multiplies the poise and posture damage the exhausted player deals.", 0.0, 1.0, 0.05, 0.5)
-	AddSetting(4, 0, "Exhaustion", "SelfPoiseLightPercent", "Exaustao: poise perdido por golpe leve (%)", "Exhaustion: poise lost per light swing (%)", "Cada golpe leve exausto gasta esta % do poise maximo do jogador. A 0 ele cambaleia.", "Each exhausted light swing costs this % of the player's max poise. At 0 he stumbles back.", 0.0, 50.0, 1.0, 10.0)
-	AddSetting(4, 0, "Exhaustion", "SelfPoiseHeavyPercent", "Exaustao: poise perdido por golpe forte (%)", "Exhaustion: poise lost per heavy swing (%)", "Idem para golpes fortes.", "Same for heavy swings.", 0.0, 80.0, 1.0, 20.0)
+	AddSetting(4, 0, "Exhaustion", "SelfPoiseLightPercent", "Exaustao: poise perdido por golpe leve (%)", "Exhaustion: poise lost per light swing (%)", "Cada golpe leve exausto gasta esta % do poise maximo do jogador. A 0 ele cambaleia (auto-stagger). Facil 20 / Normal 25 / Dificil 35.", "Each exhausted light swing costs this % of the player's max poise. At 0 he stumbles back (auto-stagger). Easy 20 / Normal 25 / Hard 35.", 0.0, 50.0, 1.0, 25.0)
+	AddSetting(4, 0, "Exhaustion", "SelfPoiseHeavyPercent", "Exaustao: poise perdido por golpe forte (%)", "Exhaustion: poise lost per heavy swing (%)", "Idem para golpes fortes. Facil 25 / Normal 30 / Dificil 50.", "Same for heavy swings. Easy 25 / Normal 30 / Hard 50.", 0.0, 80.0, 1.0, 30.0)
 	AddSetting(4, 0, "Exhaustion", "PoiseDamageMult", "Exaustao: dano de poise/postura (x)", "Exhaustion: poise/posture damage (x)", "Quem esta exausto leva mais dano de poise e postura.", "Whoever is exhausted takes more poise and posture damage.", 1.0, 3.0, 0.1, 1.5)
 	AddSetting(4, 0, "Exhaustion", "RecoverStamina", "Exaustao: estamina recuperada no fim", "Exhaustion: stamina recovered at the end", "Estamina que o jogador recupera quando a exaustao acaba.", "Stamina the player gets back when exhaustion ends.", 0.0, 200.0, 5.0, 50.0)
 	AddSetting(4, 0, "Exhaustion", "StopSeconds", "Exaustao: parar para recuperar (s)", "Exhaustion: stop to recover (s)", "Segundos sem atacar para receber a estamina de volta. Quem insiste em bater nao recupera.", "Seconds without swinging to get the stamina back. Keep swinging and you do not recover.", 0.0, 5.0, 0.1, 1.5)
@@ -815,12 +813,10 @@ Function ApplyPreset(int tab, int lvl)
 		PV("Stamina", "PoiseLowRegenMult", 0.7, 0.6, 0.5)
 		PV("Stamina", "ClassRegenPenalty", 0.05, 0.08, 0.10)
 		PV("Exhaustion", "AttackDamageMult", 0.55, 0.4, 0.3)
-		PV("Exhaustion", "SelfPoiseLightPercent", 6.0, 10.0, 14.0)
-		PV("Exhaustion", "SelfPoiseHeavyPercent", 12.0, 20.0, 28.0)
+		PV("Exhaustion", "SelfPoiseLightPercent", 20.0, 25.0, 35.0)
+		PV("Exhaustion", "SelfPoiseHeavyPercent", 25.0, 30.0, 50.0)
 		PV("Posture", "PlayerBrokenSeconds", 3.0, 4.0, 5.0)
 		PV("Posture", "PlayerBrokenDamageMult", 1.5, 2.0, 2.5)
-		PV("Exhaustion", "SpeedFactor", 0.8, 0.7, 0.6)
-		PV("Exhaustion", "AttackSpeedFactor", 0.8, 0.7, 0.6)
 		PV("Exhaustion", "BlockedDamageMult", 1.4, 1.8, 2.2)
 		PV("Exhaustion", "Seconds", 1.5, 2.0, 2.0)
 		PV("Exhaustion", "MaxSeconds", 6.0, 7.0, 8.0)
