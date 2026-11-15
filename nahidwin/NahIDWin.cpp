@@ -58,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.26.0 (controls watchdog, repair, performance modes)"
+#define PLUGIN_VERSION_STR	"0.26.1 (no speed penalties, new auto-stagger %, block lag log)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -469,8 +469,8 @@ namespace
 		c.exhaustBlockActions = IniI("Exhaustion", "BlockActions", 0);
 		c.exhAtkDmgMult	= IniF("Exhaustion", "AttackDamageMult", 0.4f);
 		c.exhAtkPoiseMult = IniF("Exhaustion", "AttackPoiseMult", 0.5f);
-		c.selfPoiseLight = IniF("Exhaustion", "SelfPoiseLightPercent", 10.0f);
-		c.selfPoiseHeavy = IniF("Exhaustion", "SelfPoiseHeavyPercent", 20.0f);
+		c.selfPoiseLight = IniF("Exhaustion", "SelfPoiseLightPercent", 25.0f);
+		c.selfPoiseHeavy = IniF("Exhaustion", "SelfPoiseHeavyPercent", 30.0f);
 		c.brokenSeconds	= IniF("Posture", "PlayerBrokenSeconds", 4.0f);
 		c.brokenDmgMult	= IniF("Posture", "PlayerBrokenDamageMult", 2.0f);
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
@@ -2914,7 +2914,7 @@ namespace
 		if(parry)
 		{
 			InterlockedIncrement(&g_parries);
-			_MESSAGE("PARRY: %08X parried %08X", h.victim.id, h.attackerId);
+			_MESSAGE("PARRY: %08X parried %08X (source: native DLL window; inpaMode=%d)", h.victim.id, h.attackerId, g_cfg.inpaMode);
 			if(g_cfg.parryFx) SendStaggerEvent(h.victimRef, h.attackerId, 6);
 			{
 				float c = 0.0f, m = 0.0f;
@@ -3511,6 +3511,7 @@ namespace
 	}
 
 	volatile DWORD g_lastBlockHitAnim = 0;
+	volatile DWORD g_blockUpTick = 0;	// v0.26.1: diagnostic of block lag (button -> animation graph)
 	// Sem objetos com destrutor: pode usar __try.
 	bool ShouldBlockNotify(void * holder, const BSFixedString * evn)
 	{
@@ -3533,6 +3534,16 @@ namespace
 				{
 					InterlockedIncrement(&animLogged);
 					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d tid=%u t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetCurrentThreadId(), (unsigned)GetTickCount());
+				}
+				// v0.26.1: how long the block button took to reach the graph (and the release). Values above ~150 ms mean the game thread was late.
+				static volatile LONG lagLogged = 0;
+				if(lagLogged < 150 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14 && !g_ownNotify)
+				{
+					const DWORD tl = GetTickCount();
+					if(_stricmp(evn->data, "blockStart") == 0 && g_blockDownTick && tl - g_blockDownTick < 3000)
+					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStart reached the graph %u ms after the button press (parry window %d ms)", (unsigned)(tl - g_blockDownTick), (int)g_cfg.parryWindowMs); }
+					else if(_stricmp(evn->data, "blockStop") == 0 && g_blockUpTick && tl - g_blockUpTick < 3000)
+					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStop reached the graph %u ms after the button release", (unsigned)(tl - g_blockUpTick)); }
 				}
 			}
 			// golpe forte: os "attackPowerStart*" sao ENTRADAS do grafo (o Papyrus nao as ve); o gancho ve-as no jogador e nos NPC
@@ -3567,7 +3578,12 @@ namespace
 			if(!g_ownNotify && g_cfg.enabled && (brokenNow || (g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0)) && evn && IsExhaustBlockedName(evn->data, brokenNow))
 			{
 				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
-				if(pid == 0x14) { InterlockedIncrement(&g_shieldBlocked); return true; }
+				if(pid == 0x14)
+				{
+					static volatile LONG swLogged = 0;
+					if(g_cfg.diag && InterlockedIncrement(&swLogged) <= 40) _MESSAGE("BLOCK-SWALLOWED: '%s' on the player was blocked by the mod (reason: %s)", evn->data, brokenNow ? "posture broken" : "exhaustion BlockActions");
+					InterlockedIncrement(&g_shieldBlocked); return true;
+				}
 			}
 			if(g_ownNotify || !g_cfg.rageStaggerShield || !g_cfg.enabled) return false;
 			if(g_cfg.npcGuardRules && evn && evn->data && _stricmp(evn->data, "blockStart") == 0)
@@ -4070,6 +4086,7 @@ namespace
 
 	void OnBlockUp()
 	{
+		g_blockUpTick = GetTickCount();
 		InterlockedExchange(&g_blockHeld, 0);
 	}
 
