@@ -62,7 +62,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.26.2 (kill-switches, ini cache, one reload)"
+#define PLUGIN_VERSION_STR	"0.26.3 (Inpa scripts, block reaction events)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -251,6 +251,10 @@ namespace
 
 		// avisos e golpes proprios
 		// parry proprio (janela depois de levantar o bloqueio)
+		int		blockReact;				// v0.26.3: Mode 0 (DLL) - on a blocked hit the DLL sends the block-hit animation events to the player
+		int		blockReactStopMs;		// delay before the end event
+		char	blockHitEvent[48];
+		char	blockHitStopEvent[48];
 		int		inpaMode;				// 1 = o parry/bloqueio/dificuldade sao do Inpa Sekiro (fundido no NahIDWin.esp): a DLL so le o estado dele
 		int		logPlayerDamage;		// diagnostico: regista cada dano de vida que o jogador leva (para achar "dano a duplicar")
 		float	powerOwnCost;			// custo proprio do golpe forte (0 = so o do jogo, fPowerAttackStaminaPenalty)
@@ -619,6 +623,10 @@ namespace
 		c.logPlayerDamage	= IniI("Inpa", "LogPlayerDamage", 1);
 		c.powerOwnCost		= IniF("Stamina", "PowerAttackOwnCost", 0.0f);
 		c.parryWindowMs		= IniI("Parry", "WindowMs", 300);
+		c.blockReact		= IniI("Parry", "BlockReactEvents", 1);
+		c.blockReactStopMs	= IniI("Parry", "BlockReactStopMs", 250);
+		GetPrivateProfileStringA("Parry", "BlockHitEvent", "blockHitStart", c.blockHitEvent, sizeof(c.blockHitEvent), g_iniPath);
+		GetPrivateProfileStringA("Parry", "BlockHitStopEvent", "blockHitStop", c.blockHitStopEvent, sizeof(c.blockHitStopEvent), g_iniPath);
 		c.parryAttackerPosture = IniF("Parry", "AttackerPostureFraction", 0.10f);
 		c.parryAttackerStagger = IniI("Parry", "AttackerStagger", 1);
 		c.parryDefPostureRecover = IniF("Parry", "DefenderPostureRecoverFraction", 0.15f);
@@ -1303,6 +1311,7 @@ namespace
 	DWORD			g_supUntil = 0, g_supReadyAt = 0, g_supLastCost = 0, g_supLastHit = 0;
 	volatile LONG	g_ownNotify = 0;		// 1 = chamada vinda do proprio mod (nunca filtrar)
 	void EnsureNotifyHook(TESObjectREFR * ref);
+	void PlayerBlockReact(const char * why);
 	bool CallNotify(void * holder, void * fn, const BSFixedString * name, bool * result)
 	{
 		__try
@@ -2940,6 +2949,9 @@ namespace
 			}
 		}
 
+		if(!g_cfg.inpaMode && h.victim.isPlayer && blocked && h.attackerActor && h.attackerIsActor && !h.attacker.isPlayer)
+			PlayerBlockReact(parry ? "parry" : "block");
+
 		// bloqueio normal (sem parry): o atacante gasta estamina (e nada mais)
 		if(blocked && !parry && !immune && g_cfg.blockDrain && g_cfg.blockDrainBase > 0.0f && h.victim.isPlayer && h.attackerActor && h.attackerIsActor &&
 			!h.attacker.isPlayer && h.attacker.alive)
@@ -2977,7 +2989,7 @@ namespace
 		if(parry)
 		{
 			InterlockedIncrement(&g_parries);
-			_MESSAGE("PARRY: %08X parried %08X (source: native DLL window; inpaMode=%d)", h.victim.id, h.attackerId, g_cfg.inpaMode);
+			_MESSAGE("PARRY: %08X parried %08X (source: %s)", h.victim.id, h.attackerId, g_cfg.inpaMode ? "Inpa window (zzzSekiro_control=1)" : "DLL window");
 			if(g_cfg.parryFx) SendStaggerEvent(h.victimRef, h.attackerId, 6);
 			{
 				float c = 0.0f, m = 0.0f;
@@ -3607,7 +3619,7 @@ namespace
 					if(_stricmp(evn->data, "blockStart") == 0 && g_blockDownTick && tl - g_blockDownTick < 3000)
 					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStart reached the graph %u ms after the button press (parry window %d ms)", (unsigned)(tl - g_blockDownTick), (int)g_cfg.parryWindowMs); }
 					else if(_stricmp(evn->data, "blockStop") == 0 && g_blockUpTick && tl - g_blockUpTick < 3000)
-					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStop reached the graph %u ms after the button release", (unsigned)(tl - g_blockUpTick)); }
+					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStop reached the graph %u ms after the button release", (unsigned)(tl - g_blockUpTick)); g_blockUpTick = 0; }
 				}
 			}
 			// golpe forte: os "attackPowerStart*" sao ENTRADAS do grafo (o Papyrus nao as ve); o gancho ve-as no jogador e nos NPC
@@ -3957,6 +3969,37 @@ namespace
 		}
 	}
 
+	// v0.26.3 (Mode 0, DLL owns the block): a blocked hit on the player sends the same animation events Inpa's scripts use (blockHitStart, later blockHitStop)
+	// so the block-hit animations of the player's graph play. Only behavior events through the animation graph; no engine addresses.
+	DWORD g_blockReactStopAt = 0;
+	bool SendPlayerAnimEvent(const char * ev, const char * why)
+	{
+		TESObjectREFR * pl = (TESObjectREFR *)Engine::Player();
+		if(!pl || !ev || !ev[0]) return false;
+		BSFixedString name(ev);
+		void * holder = (UInt8 *)pl + 0x20;
+		void * fn = ReadVtblSlot(holder, g_cfg.nativeSlot);
+		if(!fn) return false;
+		bool result = false;
+		const bool ok = CallNotify(holder, fn, &name, &result);
+		static volatile LONG rl = 0;
+		if(g_cfg.diag && InterlockedIncrement(&rl) <= 80) _MESSAGE("BLOCK-REACT: '%s' on the player (%s): %s, graph returned %d", ev, why, ok ? "ok" : "CRASHED inside the call (caught)", result ? 1 : 0);
+		return ok && result;
+	}
+	void PlayerBlockReact(const char * why)
+	{
+		if(g_cfg.inpaMode || !g_cfg.blockReact) return;
+		SendPlayerAnimEvent(g_cfg.blockHitEvent, why);
+		g_blockReactStopAt = GetTickCount() + (DWORD)(g_cfg.blockReactStopMs > 50 ? g_cfg.blockReactStopMs : 50);
+	}
+	void TickBlockReact(DWORD now)
+	{
+		if(!g_blockReactStopAt || (LONG)(now - g_blockReactStopAt) < 0) return;
+		g_blockReactStopAt = 0;
+		if(g_cfg.inpaMode) return;
+		SendPlayerAnimEvent(g_cfg.blockHitStopEvent, "end");
+	}
+
 	void TickNpcSwings(DWORD now)
 	{
 		static DWORD last = 0;
@@ -4145,6 +4188,7 @@ namespace
 	void OnBlockDown()
 	{
 		if(InterlockedExchange(&g_blockHeld, 1) != 0) return;
+		g_blockUpTick = 0;
 		g_blockDownTick = GetTickCount();	// novo clique = nova janela de parry
 	}
 
@@ -4822,6 +4866,7 @@ namespace
 			TickLockJobs(now);
 			TickNpcSwings(now);
 			TickParryCap(now);
+			TickBlockReact(now);
 			TickPerilous(now);
 			InpaCtlTick(now);
 			TickFleeWatch(now);

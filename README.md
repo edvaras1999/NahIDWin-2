@@ -123,3 +123,9 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 * **`[Safety] BridgeMinimal=1`**: the mod's Papyrus stops all cycle work and per-swing handling (diagnostic only).
 * **`[Inpa] Mode=0` (experimental)**: the DLL owns the parry window, the parry effects and the damage hook; Inpa's player spells and master switch are turned off at game load. `Mode=1` hands everything back to Inpa.
 * The CI now builds on `windows-2022` instead of `windows-latest`, so the compiler does not change by itself.
+
+
+## v0.26.3
+- Root cause of the broken Inpa block/parry: the Inpa scripts (scripts/zzzSekiro_*.pex) were missing from the package. Copy them from the original Inpa mod (private package only).
+- Mode 0 (DLL parry): blocked hits on the player send blockHitStart / blockHitStop (see [Parry] BlockReact*). Logged as BLOCK-REACT.
+- Log text of PARRY now names the real source; BLOCK-LAG blockStop metric fixed.
