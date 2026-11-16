@@ -24,7 +24,6 @@ Event OnInit()
 	RegisterForModEvent("NahIDWin_Execute", "OnNahExecute")
 	RegisterForModEvent("NahIDWin_Reflect", "OnNahReflect")
 	RegisterForModEvent("NahIDWin_Perilous", "OnNahPerilous")
-	RegisterForModEvent("NahIDWin_Repair", "OnNahRepair")
 	RegisterForSleep()
 	RegisterInputs()
 	RegisterForSingleUpdate(0.5)
@@ -56,7 +55,6 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	RegisterForModEvent("NahIDWin_Execute", "OnNahExecute")
 	RegisterForModEvent("NahIDWin_Reflect", "OnNahReflect")
 	RegisterForModEvent("NahIDWin_Perilous", "OnNahPerilous")
-	RegisterForModEvent("NahIDWin_Repair", "OnNahRepair")
 	RegisterForSleep()
 	NahIDWinNative.SetLivesUsed(livesUsed)
 	executing = false
@@ -68,12 +66,6 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 		Game.GetPlayer().ModActorValue("WeaponSpeedMult", atkCut)
 	endif
 	atkCut = 0.0
-	if ctrlHeld
-		Game.EnablePlayerControls(true, true, true, true, true, true, true, true, 0)
-		ctrlHeld = false
-		NahIDWinNative.Log("controls: released the controls this mod had disabled before the save")
-	endif
-	RefreshPerf()
 	exhaustedNow = false
 	NahIDWinNative.ExhaustEnded()
 	if NahIDWinNative.IniGetF("Exhaustion", "RepairSpeedOnLoad", 0.0) > 0.5
@@ -179,128 +171,15 @@ Event OnUpdate()
 		sInitAt = Utility.GetCurrentRealTime() + 40.0
 		LateInit()
 	endif
-	if Utility.GetCurrentRealTime() >= wdPerfNext
-		wdPerfNext = Utility.GetCurrentRealTime() + 20.0
-		RefreshPerf()
-	endif
-	if bridgeMin
-		; [Safety] BridgeMinimal=1 (diagnostic): the mod's Papyrus does no per-cycle work at all
-		RegisterForSingleUpdate(loopIdle)
-		return
-	endif
 	CheckExhaust()
 	ApplyRegen()
-	ControlsWatchdog()
-	; light loop: 0.5 s in combat or exhausted, 2.5 s otherwise (slower in the Light/Minimal performance modes)
+	; light loop: 0.5 s in combat or exhausted, 2.5 s otherwise
 	if inCombatNow || exhaustedNow
-		RegisterForSingleUpdate(loopCombat)
+		RegisterForSingleUpdate(0.5)
 	else
-		RegisterForSingleUpdate(loopIdle)
+		RegisterForSingleUpdate(2.5)
 	endif
 EndEvent
-
-; ---------------- v0.26: seguranca (vigia de controles), reparo e desempenho ----------------
-bool ctrlHeld = false
-bool bridgeMin = false
-float loopCombat = 0.5
-float loopIdle = 2.5
-float wdNext = 0.0
-float wdPerfNext = 0.0
-string wdLast = ""
-int wdBad = 0
-
-Function RefreshPerf()
-	bridgeMin = NahIDWinNative.IniGetF("Safety", "BridgeMinimal", 0.0) > 0.5
-	float pm = NahIDWinNative.IniGetF("Performance", "Mode", 0.0)
-	; the combat loop is NEVER slowed (stamina and exhaustion depend on it); only the idle loop is slower in the Light/Minimal modes
-	loopCombat = 0.5
-	if pm >= 1.5
-		loopIdle = 5.0
-	elseif pm >= 0.5
-		loopIdle = 4.0
-	else
-		loopIdle = 2.5
-	endif
-EndFunction
-
-int Function Bi(bool b)
-	if b
-		return 1
-	endif
-	return 0
-EndFunction
-
-; Regista no log (so quando muda) o estado dos controles do jogador; opcionalmente reativa-os se ficarem presos depois do combate.
-Function ControlsWatchdog()
-	float t = Utility.GetCurrentRealTime()
-	if t < wdNext
-		return
-	endif
-	if NahIDWinNative.IniGetF("Safety", "ControlsWatchdog", 1.0) < 0.5
-		wdNext = t + 10.0
-		return
-	endif
-	wdNext = t + 2.0
-	if inCombatNow || exhaustedNow || executing || ctrlHeld
-		; in combat the watchdog does nothing (saves nine engine calls and avoids false alarms)
-		wdBad = 0
-		return
-	endif
-	Actor pl = Game.GetPlayer()
-	string st = "mov=" + Bi(Game.IsMovementControlsEnabled()) + " fight=" + Bi(Game.IsFightingControlsEnabled()) + " look=" + Bi(Game.IsLookingControlsEnabled()) + " menu=" + Bi(Game.IsMenuControlsEnabled()) + " activate=" + Bi(Game.IsActivateControlsEnabled()) + " journal=" + Bi(Game.IsJournalControlsEnabled()) + " sneak=" + Bi(Game.IsSneakingControlsEnabled()) + " cam=" + Bi(Game.IsCamSwitchControlsEnabled()) + " pov=" + Bi(Game.IsPOVSwitchControlsEnabled())
-	; pov (switching first/third person) is often disabled by other mods on purpose: it is logged but does not count as a fault
-	bool allOn = (Game.IsMovementControlsEnabled() && Game.IsFightingControlsEnabled() && Game.IsLookingControlsEnabled() && Game.IsMenuControlsEnabled() && Game.IsActivateControlsEnabled() && Game.IsJournalControlsEnabled() && Game.IsSneakingControlsEnabled() && Game.IsCamSwitchControlsEnabled())
-	string full = st + " | combat=" + Bi(inCombatNow) + " menuMode=" + Bi(Utility.IsInMenuMode()) + " ourHold=" + Bi(ctrlHeld) + " bleedout=" + Bi(pl.IsBleedingOut()) + " exhausted=" + Bi(exhaustedNow)
-	if full != wdLast
-		wdLast = full
-		if allOn
-			NahIDWinNative.Log("CONTROLS OK | " + full)
-		else
-			NahIDWinNative.Log("CONTROLS BLOCKED | " + full)
-		endif
-	endif
-	if allOn || inCombatNow || ctrlHeld || exhaustedNow || executing
-		wdBad = 0
-		return
-	endif
-	wdBad += 1
-	if wdBad >= 5 && NahIDWinNative.IniGetF("Safety", "AutoFix", 0.0) > 0.5 && !Utility.IsInMenuMode()
-		wdBad = 0
-		Game.EnablePlayerControls(true, true, true, true, true, true, true, true, 0)
-		NahIDWinNative.Log("CONTROLS: auto-fix re-enabled the player controls (" + st + ")")
-	endif
-EndFunction
-
-; Botao do MCM "Reparar jogo / Preparar para desinstalar": devolve tudo ao normal e para os ciclos do mod.
-Function OnNahRepair(string eventName, string strArg, float numArg, Form sender)
-	Actor pl = Game.GetPlayer()
-	if exhaustedNow
-		NahIDWinNative.ExhaustEnded()
-		exhaustedNow = false
-	endif
-	if speedCut > 0.0
-		pl.ModActorValue("SpeedMult", speedCut)
-		speedCut = 0.0
-	endif
-	if atkCut > 0.0
-		pl.ModActorValue("WeaponSpeedMult", atkCut)
-		atkCut = 0.0
-	endif
-	float baseSp = pl.GetBaseActorValue("SpeedMult")
-	float curSp = pl.GetActorValue("SpeedMult")
-	if Math.Abs(curSp - baseSp) > 0.5
-		pl.ModActorValue("SpeedMult", baseSp - curSp)
-	endif
-	pl.SetActorValue("StaminaRateMult", 100.0)
-	pl.SetAnimationVariableBool("bNoStagger", false)
-	sNoStagger = false
-	Game.EnablePlayerControls(true, true, true, true, true, true, true, true, 0)
-	ctrlHeld = false
-	Game.SetGameSettingFloat("fStaminaAttackWeaponBase", 20.0)
-	Game.SetGameSettingFloat("fStaminaAttackWeaponMult", 1.0)
-	NahIDWinNative.Log("REPAIR: speed, attack speed, stamina regen, GMSTs and controls restored")
-	Debug.Notification("NAH-I-D-WIN: jogo reparado / game repaired")
-EndFunction
 
 ; ---------------- vidas extra do jogador ----------------
 int livesUsed = 0
@@ -487,8 +366,7 @@ Function OnNahLife(string eventName, string strArg, float numArg, Form sender)
 		NahIDWinNative.Log("extra life: engine bleedout=" + engineBO)
 		if !engineBO
 			; rede de seguranca: o jogo nao fez o bleedout (marca essencial ignorada) -> animacao nossa, com invulnerabilidade da DLL
-			ctrlHeld = true
-			Game.DisablePlayerControls(true, true, false, false, false, false, false, false, 0)
+			Game.DisablePlayerControls(true, true, false, false, false, true, true, false, 0)
 			int pid = pl.GetFormID()
 			int tries = 0
 			bool ok = false
@@ -506,7 +384,6 @@ Function OnNahLife(string eventName, string strArg, float numArg, Form sender)
 			NahIDWinNative.OwnAnim(1500)
 			Debug.SendAnimationEvent(pl, "BleedoutStop")
 			Game.EnablePlayerControls(true, true, true, true, true, true, true, true, 0)
-			ctrlHeld = false
 		endif
 		pl.ResetHealthAndLimbs()
 		NahIDWinNative.LifeRecover()
@@ -658,9 +535,6 @@ EndFunction
 
 ; Cada golpe do jogador gasta estamina (mesmo sem acertar). O custo depende da arma, do tipo de golpe e da armadura.
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
-	if bridgeMin
-		return
-	endif
 	Actor pl = Game.GetPlayer()
 	if asEventName == "recoilStop" || asEventName == "staggerStop" || asEventName == "ragdollEnd" || asEventName == "GetUpStart" || asEventName == "GetUpEnd"
 		NahIDWinNative.Log("PLAYER ANIM: " + asEventName)
@@ -708,7 +582,7 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 	ApplyRegen()
 EndEvent
 
-; Exhaustion (player): no stamina regen for a few seconds (no speed penalties since 0.26.1). Non-blocking: the end is checked from OnUpdate.
+; Exhaustion (player): no stamina regen for a few seconds, reduced move speed. Non-blocking: the end is checked from OnUpdate.
 Function DoExhaustPlayer()
 	Actor pl = Game.GetPlayer()
 	if exhaustedNow
@@ -718,6 +592,18 @@ Function DoExhaustPlayer()
 	exhStart = Utility.GetCurrentRealTime()
 	exhMin = NahIDWinNative.GetExhaustSeconds()
 	exhMax = NahIDWinNative.GetExhaustMax()
+	float sf = NahIDWinNative.IniGetF("Exhaustion", "SpeedFactor", 0.5)
+	speedCut = 0.0
+	if sf >= 0.0 && sf < 1.0
+		speedCut = pl.GetActorValue("SpeedMult") * (1.0 - sf)
+		pl.ModActorValue("SpeedMult", -speedCut)
+	endif
+	float af = NahIDWinNative.IniGetF("Exhaustion", "AttackSpeedFactor", 0.7)
+	atkCut = 0.0
+	if af >= 0.0 && af < 1.0
+		atkCut = pl.GetActorValue("WeaponSpeedMult") * (1.0 - af)
+		pl.ModActorValue("WeaponSpeedMult", -atkCut)
+	endif
 	lastRegen = 0.0
 	pl.SetActorValue("StaminaRateMult", 0.0)
 	NahIDWinNative.Log("exhaust player start " + exhMin)
@@ -761,6 +647,14 @@ EndFunction
 Function EndExhaust()
 	Actor pl = Game.GetPlayer()
 	NahIDWinNative.ExhaustEnded()
+	if speedCut > 0.0
+		pl.ModActorValue("SpeedMult", speedCut)
+		speedCut = 0.0
+	endif
+	if atkCut > 0.0
+		pl.ModActorValue("WeaponSpeedMult", atkCut)
+		atkCut = 0.0
+	endif
 	float rec = NahIDWinNative.IniGetF("Exhaustion", "RecoverStamina", 50.0)
 	float curSt = pl.GetActorValue("Stamina")
 	; so recebe o bonus quem parou de bater; quem insistiu ate ao limite fica so com a regeneracao normal
@@ -779,7 +673,6 @@ float exhStart = 0.0
 float exhMin = 2.0
 float exhMax = 8.0
 bool exhaustedNow = false
-; speedCut/atkCut: no longer applied (0.26.1); kept only so that old saves restore the values they had cut
 float speedCut = 0.0
 float atkCut = 0.0
 
@@ -886,8 +779,7 @@ Function DoBleedOut(Actor victim, int packed, Actor aggressor)
 	float secs = NahIDWinNative.GetBleedSeconds()
 	bool isPlayer = (victim == Game.GetPlayer())
 	if isPlayer
-		ctrlHeld = true
-		Game.DisablePlayerControls(true, true, false, false, false, false, false, false, 0)
+		Game.DisablePlayerControls(true, true, false, false, false, true, true, false, 0)
 	endif
 	NahIDWinNative.Log("bleedout start " + secs)
 	; NPC com o Inpa fundido: postura quebrada = o "poisebreak" do Inpa (stagger grande, som e janela de execucao com animacao do jogo base).
@@ -923,7 +815,6 @@ Function DoBleedOut(Actor victim, int packed, Actor aggressor)
 	endif
 	if isPlayer
 		Game.EnablePlayerControls(true, true, true, true, true, true, true, true, 0)
-		ctrlHeld = false
 	endif
 	NahIDWinNative.BleedDone(packed)
 EndFunction
