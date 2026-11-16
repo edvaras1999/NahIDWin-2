@@ -49,10 +49,6 @@
 #include "Engine.h"
 
 #include <shlobj.h>
-#include <ctype.h>
-#include <math.h>
-#include <map>
-#include <string>
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
@@ -62,7 +58,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.26.2 (kill-switches, ini cache, one reload)"
+#define PLUGIN_VERSION_STR	"0.25.5 (exhaustion: recovery only when you stop swinging)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -186,7 +182,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6];
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -395,57 +391,10 @@ namespace
 		return buf[0] ? atoi(buf) : def;
 	}
 
-	// v0.26.2: leitura do .ini com cache (o MCM le centenas de chaves; antes cada uma ia ao disco) e gravacao sem recarregar a cada chave.
-	struct IniEntry { bool has; float v; };
-	std::map<std::string, IniEntry> g_iniCache;
-	volatile LONG g_iniSpin = 0;
-	void IniCacheLock() { while(InterlockedCompareExchange(&g_iniSpin, 1, 0) != 0) Sleep(0); }
-	void IniCacheUnlock() { InterlockedExchange(&g_iniSpin, 0); }
-	std::string IniCacheKey(const char * section, const char * key)
-	{
-		std::string k = std::string(section) + "|" + key;
-		for(size_t i = 0; i < k.size(); i++) k[i] = (char)tolower((unsigned char)k[i]);
-		return k;
-	}
-	void IniCacheClear() { IniCacheLock(); g_iniCache.clear(); IniCacheUnlock(); }
-	// Devolve true se a chave existe no .ini (e o valor em *out)
-	bool IniCacheGet(const char * section, const char * key, float * out)
-	{
-		const std::string k = IniCacheKey(section, key);
-		IniCacheLock();
-		std::map<std::string, IniEntry>::iterator it = g_iniCache.find(k);
-		const bool found = (it != g_iniCache.end());
-		IniEntry e = { false, 0.0f };
-		if(found) e = it->second;
-		IniCacheUnlock();
-		if(!found)
-		{
-			char buf[64];
-			GetPrivateProfileStringA(section, key, "", buf, sizeof(buf), g_iniPath);
-			e.has = buf[0] != 0;
-			e.v = e.has ? (float)atof(buf) : 0.0f;
-			IniCacheLock();
-			if(g_iniCache.size() > 4000) g_iniCache.clear();
-			g_iniCache[k] = e;
-			IniCacheUnlock();
-		}
-		if(e.has && out) *out = e.v;
-		return e.has;
-	}
-	void IniCachePut(const char * section, const char * key, float v)
-	{
-		const std::string k = IniCacheKey(section, key);
-		IniEntry e = { true, v };
-		IniCacheLock();
-		g_iniCache[k] = e;
-		IniCacheUnlock();
-	}
-
 	void ApplyHealthGMST();
 
 	void LoadConfig()
 	{
-		IniCacheClear();
 		Config & c = g_cfg;
 		c.enabled		= IniI("General", "Enabled", 1);
 		c.applyPlayer	= IniI("General", "Player", 1);
@@ -520,8 +469,8 @@ namespace
 		c.exhaustBlockActions = IniI("Exhaustion", "BlockActions", 0);
 		c.exhAtkDmgMult	= IniF("Exhaustion", "AttackDamageMult", 0.4f);
 		c.exhAtkPoiseMult = IniF("Exhaustion", "AttackPoiseMult", 0.5f);
-		c.selfPoiseLight = IniF("Exhaustion", "SelfPoiseLightPercent", 25.0f);
-		c.selfPoiseHeavy = IniF("Exhaustion", "SelfPoiseHeavyPercent", 30.0f);
+		c.selfPoiseLight = IniF("Exhaustion", "SelfPoiseLightPercent", 10.0f);
+		c.selfPoiseHeavy = IniF("Exhaustion", "SelfPoiseHeavyPercent", 20.0f);
 		c.brokenSeconds	= IniF("Posture", "PlayerBrokenSeconds", 4.0f);
 		c.brokenDmgMult	= IniF("Posture", "PlayerBrokenDamageMult", 2.0f);
 		c.staggerGuardMs = IniI("NpcBlock", "NoGuardAfterStaggerMs", 900);
@@ -788,27 +737,9 @@ namespace
 		c.dumpVtable	= IniI("Diagnostics", "DumpVtable", 0);
 		c.logPlayerEvents = IniI("Diagnostics", "LogPlayerEvents", 1);
 
-		// v0.26: modos de desempenho (0 normal, 1 leve, 2 minimo)
-		// v0.26.2: chaves de desligar (so para diagnostico: cada uma desliga uma funcao; os ganchos so mudam ao reiniciar o jogo)
-		c.dbgNoHealth = IniI("Debug", "DisableHealthHook", 0);
-		c.dbgNoNotify = IniI("Debug", "DisableNotifyHook", 0);
-		c.dbgNoBlockStam = IniI("Debug", "DisableBlockStamina", 0);
-		c.dbgNoParry = IniI("Debug", "DisableParryWindow", 0);
-		if(c.dbgNoHealth || c.dbgNoNotify || c.dbgNoBlockStam || c.dbgNoParry)
-			_MESSAGE("DEBUG SWITCHES ON: health hook off=%d, animation hook off=%d, block stamina off=%d, parry window off=%d", c.dbgNoHealth, c.dbgNoNotify, c.dbgNoBlockStam, c.dbgNoParry);
-		c.perfMode = IniI("Performance", "Mode", 0);
-		c.tickMs = 0;
-		if(c.perfMode >= 1)
-		{
-			c.diag = 0; c.hitchMs = 0;
-			c.tickMs = (c.perfMode == 1) ? 60 : 120;
-			if(c.perfMode >= 2) c.wEnabled = 0;
-		}
-
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if(GetFileAttributesExA(g_iniPath, GetFileExInfoStandard, &fad)) g_iniTime = fad.ftLastWriteTime;
 
-		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d)", c.perfMode, c.tickMs, c.diag);
 		_MESSAGE("config: enabled=%d player=%d npcs=%d staggerMode=%d (slot %d, '%s') posture=%d (difficulty %.2f) hud=%d bar=%d diag=%d  [%s]",
 			c.enabled, c.applyPlayer, c.applyNPCs, c.staggerMode, c.nativeSlot, c.nativeEvent, c.postureEnabled, c.postureDifficulty, c.hudEnabled, c.hudBar, c.diag, g_iniPath);
 		ApplyHealthGMST();
@@ -2256,7 +2187,6 @@ namespace
 	// Estamina gasta ao bloquear: dano x fator x diferenca de classe contra a ARMADURA (nao contra o bloqueio). Guarda partida se nao chega.
 	void BlockStamina(Actor * va, const HitInfo & h, float dmg, int atkCls, bool heavyAtk, DWORD now)
 	{
-		if(g_cfg.dbgNoBlockStam) return;	// [Debug] DisableBlockStamina
 		const int armorCls = ArmorClass(h.victim.armor, h.victim.isPlayer);
 		int diff = atkCls - armorCls;
 		if(diff > 0 && !heavyAtk) diff--;
@@ -2646,11 +2576,7 @@ namespace
 		const bool heavyHit = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0;
 
 		bool parry = false, immune = false;
-		if(g_cfg.dbgNoParry)
-		{
-			// [Debug] DisableParryWindow: a DLL nao decide nenhum parry
-		}
-		else if(g_cfg.inpaMode)
+		if(g_cfg.inpaMode)
 		{
 			// Modo Inpa (como na 0.16.0, que funcionava): golpe bloqueado enquanto a janela do parry do Inpa esta aberta (zzzSekiro_control == 1).
 			// A DLL so le o estado; o som, os efeitos e o recuo do atacante sao do Inpa. Um parry por janela (0,5 s).
@@ -2977,7 +2903,7 @@ namespace
 		if(parry)
 		{
 			InterlockedIncrement(&g_parries);
-			_MESSAGE("PARRY: %08X parried %08X (source: native DLL window; inpaMode=%d)", h.victim.id, h.attackerId, g_cfg.inpaMode);
+			_MESSAGE("PARRY: %08X parried %08X", h.victim.id, h.attackerId);
 			if(g_cfg.parryFx) SendStaggerEvent(h.victimRef, h.attackerId, 6);
 			{
 				float c = 0.0f, m = 0.0f;
@@ -3469,7 +3395,6 @@ namespace
 	void InstallHealthHook()
 	{
 		if(g_hdInstalled) return;
-		if(g_cfg.dbgNoHealth) { _MESSAGE("health hook: NOT installed ([Debug] DisableHealthHook=1)"); return; }
 		// a funcao tem de ser mesmo a que esperamos (assinatura do TESV.exe 1.9.32.0.8)
 		static const unsigned char expect[16] = { 0x51,0x56,0x8B,0xF1,0x8B,0x06,0x8B,0x90,0x64,0x02,0x00,0x00,0x6A,0x00,0xFF,0xD2 };
 		unsigned char have[16];
@@ -3575,7 +3500,6 @@ namespace
 	}
 
 	volatile DWORD g_lastBlockHitAnim = 0;
-	volatile DWORD g_blockUpTick = 0;	// v0.26.1: diagnostic of block lag (button -> animation graph)
 	// Sem objetos com destrutor: pode usar __try.
 	bool ShouldBlockNotify(void * holder, const BSFixedString * evn)
 	{
@@ -3598,16 +3522,6 @@ namespace
 				{
 					InterlockedIncrement(&animLogged);
 					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d tid=%u t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetCurrentThreadId(), (unsigned)GetTickCount());
-				}
-				// v0.26.1: how long the block button took to reach the graph (and the release). Values above ~150 ms mean the game thread was late.
-				static volatile LONG lagLogged = 0;
-				if(lagLogged < 150 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14 && !g_ownNotify)
-				{
-					const DWORD tl = GetTickCount();
-					if(_stricmp(evn->data, "blockStart") == 0 && g_blockDownTick && tl - g_blockDownTick < 3000)
-					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStart reached the graph %u ms after the button press (parry window %d ms)", (unsigned)(tl - g_blockDownTick), (int)g_cfg.parryWindowMs); }
-					else if(_stricmp(evn->data, "blockStop") == 0 && g_blockUpTick && tl - g_blockUpTick < 3000)
-					{ InterlockedIncrement(&lagLogged); _MESSAGE("BLOCK-LAG: blockStop reached the graph %u ms after the button release", (unsigned)(tl - g_blockUpTick)); }
 				}
 			}
 			// golpe forte: os "attackPowerStart*" sao ENTRADAS do grafo (o Papyrus nao as ve); o gancho ve-as no jogador e nos NPC
@@ -3642,12 +3556,7 @@ namespace
 			if(!g_ownNotify && g_cfg.enabled && (brokenNow || (g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0)) && evn && IsExhaustBlockedName(evn->data, brokenNow))
 			{
 				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
-				if(pid == 0x14)
-				{
-					static volatile LONG swLogged = 0;
-					if(g_cfg.diag && InterlockedIncrement(&swLogged) <= 40) _MESSAGE("BLOCK-SWALLOWED: '%s' on the player was blocked by the mod (reason: %s)", evn->data, brokenNow ? "posture broken" : "exhaustion BlockActions");
-					InterlockedIncrement(&g_shieldBlocked); return true;
-				}
+				if(pid == 0x14) { InterlockedIncrement(&g_shieldBlocked); return true; }
 			}
 			if(g_ownNotify || !g_cfg.rageStaggerShield || !g_cfg.enabled) return false;
 			if(g_cfg.npcGuardRules && evn && evn->data && _stricmp(evn->data, "blockStart") == 0)
@@ -3718,7 +3627,7 @@ namespace
 
 	void EnsureNotifyHook(TESObjectREFR * ref)
 	{
-		if(!ref || !g_cfg.rageStaggerShield || g_cfg.dbgNoNotify) return;
+		if(!ref || !g_cfg.rageStaggerShield) return;
 		void * holder = (UInt8 *)ref + 0x20;
 		void ** vtbl = NULL;
 		__try { vtbl = *(void ***)holder; } __except(EXCEPTION_EXECUTE_HANDLER) { return; }
@@ -4150,7 +4059,6 @@ namespace
 
 	void OnBlockUp()
 	{
-		g_blockUpTick = GetTickCount();
 		InterlockedExchange(&g_blockHeld, 0);
 	}
 
@@ -4447,9 +4355,7 @@ namespace
 	float N_IniGetF(StaticFunctionTag *, BSFixedString section, BSFixedString key, float def)
 	{
 		if(!section.data || !key.data) return def;
-		float v = def;
-		if(IniCacheGet(section.data, key.data, &v)) return v;
-		return def;
+		return IniF(section.data, key.data, def);
 	}
 
 	void N_IniSetF(StaticFunctionTag *, BSFixedString section, BSFixedString key, float value)
@@ -4457,12 +4363,8 @@ namespace
 		if(!section.data || !key.data) return;
 		char buf[48];
 		_snprintf_s(buf, sizeof(buf), _TRUNCATE, "%.3f", value);
-		// v0.26.2: so grava se o valor mudou, e NAO recarrega a cada chave: a DLL repara na alteracao do ficheiro (MaybeReloadConfig, a cada 2 s) e recarrega UMA vez.
-		const float nv = (float)atof(buf);
-		float cur = 0.0f;
-		if(IniCacheGet(section.data, key.data, &cur) && fabsf(cur - nv) < 0.0005f) return;
 		WritePrivateProfileStringA(section.data, key.data, buf, g_iniPath);
-		IniCachePut(section.data, key.data, nv);
+		LoadConfig();
 	}
 
 	float N_GetKnockbackForce(StaticFunctionTag *)
@@ -4813,19 +4715,13 @@ namespace
 		const bool ready = g_cfg.wEnabled && g_dataLoaded && Engine::Player() && !AnyMenuOpen();
 		PutBool(o, "ready", ready);
 		if(!ready) return;
-		MaybeReloadConfig(now);	// v0.26.2: o MCM grava o .ini sem recarregar; aqui a DLL repara e recarrega uma vez
-		static DWORD lastTicks = 0;
-		if(g_cfg.tickMs <= 0 || now - lastTicks >= (DWORD)g_cfg.tickMs)
-		{
-			lastTicks = now;
-			TickSupreme(now);
-			TickLockJobs(now);
-			TickNpcSwings(now);
-			TickParryCap(now);
-			TickPerilous(now);
-			InpaCtlTick(now);
-			TickFleeWatch(now);
-		}
+		TickSupreme(now);
+		TickLockJobs(now);
+		TickNpcSwings(now);
+		TickParryCap(now);
+		TickPerilous(now);
+		InpaCtlTick(now);
+		TickFleeWatch(now);
 		if(g_execTick && now - g_execTick < 15000)
 		{
 			// vigia da vida do jogador depois de uma execucao (para descobrir o que o mata)
