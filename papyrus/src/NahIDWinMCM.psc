@@ -93,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 36
+	return 37
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -141,6 +141,7 @@ EndFunction
 Event OnGameReload()
 	parent.OnGameReload()
 	ApplyIniGlobals()
+	ApplyOwner()
 EndEvent
 
 Event OnVersionUpdate(int a_version)
@@ -155,6 +156,7 @@ EndEvent
 Event OnConfigInit()
 	SetupPages()
 	ApplyIniGlobals()
+	ApplyOwner()
 EndEvent
 
 Function SetupPages()
@@ -184,6 +186,10 @@ string Function Orange(string t)
 EndFunction
 
 bool Function ModOn()
+	if NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5
+		; the DLL owns block/parry: Inpa's master switch is off on purpose, so only our own switch counts
+		return NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
+	endif
 	if zzzSekiro_MCM_turn
 		return zzzSekiro_MCM_turn.GetValue() > 0.5
 	endif
@@ -449,6 +455,15 @@ EndFunction
 
 ; Liga ou desliga o Inpa e o NahIDWin em conjunto.
 Function SetModOn(bool a_on)
+	if NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5 && NahIDWinNative.IniGetF("Menu", "OwnerStripped", 0.0) > 0.5
+		; the DLL owns block/parry: Inpa stays off, only our own switch changes
+		if a_on
+			NahIDWinNative.IniSetF("General", "Enabled", 1.0)
+		else
+			NahIDWinNative.IniSetF("General", "Enabled", 0.0)
+		endif
+		return
+	endif
 	if a_on
 		zzzSekiro_MCM_turn.SetValue(1.0)
 		NahIDWinNative.IniSetF("General", "Enabled", 1.0)
@@ -468,17 +483,42 @@ Function SetModOn(bool a_on)
 	else
 		zzzSekiro_MCM_turn.SetValue(0.0)
 		NahIDWinNative.IniSetF("General", "Enabled", 0.0)
-		Strip(zzzSekiro_player_main_spell)
-		Strip(zzzSekiro_player_main2_spell)
-		Strip(zzzSekiro_player_main3_spell)
-		Strip(zzzSekiro_cloak_spell)
-		Strip(zzzSekiro_regen_blocking_spell)
-		Strip(zzzSekiro_ward_spell)
-		Strip(zzzSekiro_player_parrytimer_spell)
-		Strip(zzzSekiro_player_parry_spell)
-		Strip(zzzSekiro_player_parry2_spell)
-		Strip(zzzSekiro_player_parry3_spell)
-		Strip(zzzSekiro_zzResurrection_spell)
+		StripInpaSpells()
+	endif
+EndFunction
+
+Function StripInpaSpells()
+	Strip(zzzSekiro_player_main_spell)
+	Strip(zzzSekiro_player_main2_spell)
+	Strip(zzzSekiro_player_main3_spell)
+	Strip(zzzSekiro_cloak_spell)
+	Strip(zzzSekiro_regen_blocking_spell)
+	Strip(zzzSekiro_ward_spell)
+	Strip(zzzSekiro_player_parrytimer_spell)
+	Strip(zzzSekiro_player_parry_spell)
+	Strip(zzzSekiro_player_parry2_spell)
+	Strip(zzzSekiro_player_parry3_spell)
+	Strip(zzzSekiro_zzResurrection_spell)
+EndFunction
+
+; v0.26.2 (experimental): [Inpa] Mode=0 in the .ini = the DLL owns block/parry. Inpa's player spells and master switch are turned off here;
+; Mode=1 (default) leaves Inpa exactly as before (and restores it if it was turned off by Mode=0).
+Function ApplyOwner()
+	bool dllOwns = NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5
+	bool stripped = NahIDWinNative.IniGetF("Menu", "OwnerStripped", 0.0) > 0.5
+	if dllOwns
+		if !stripped
+			NahIDWinNative.IniSetF("Menu", "OwnerStripped", 1.0)
+		endif
+		if zzzSekiro_MCM_turn.GetValue() > 0.5 || !stripped
+			zzzSekiro_MCM_turn.SetValue(0.0)
+			StripInpaSpells()
+		endif
+	elseif stripped
+		NahIDWinNative.IniSetF("Menu", "OwnerStripped", 0.0)
+		if NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
+			SetModOn(true)
+		endif
 	endif
 EndFunction
 

@@ -2,7 +2,10 @@
 
 Sekiro-style **Poise + Posture + Stamina** combat for Skyrim **Legendary Edition** (1.9.32.0, SKSE 1.7.3).
 An SKSE plugin does the calculations; a small Papyrus bridge and a SkyUI menu handle what needs scripts.
-Designed to run on top of Inpa Sekiro Combat LE (parry, block, execution, difficulty)
+Designed to run on top of Inpa Sekiro Combat LE (parry, block, execution, difficulty); the Inpa files are not part of this repository.
+
+Config: `Data/SKSE/Plugins/NahIDWin.ini`. Log: `Documents/My Games/Skyrim/SKSE/NahIDWin.log`.
+Optional: TrueHUD LE for the poise bar.
 
 ## Combat model
 
@@ -31,7 +34,7 @@ Max poise grows with mass and armor class.
 
 **NPC stagger.** The mod no longer suppresses or blocks NPC reactions and gives NPCs no stagger immunity: vanilla stagger passes through, the mod adds its light/medium stagger by tier and a single heavy stagger on a poise break (SBS keeps the lock).
 
-**Exhaustion (stamina 0).** It no longer prevents blocking or attacking. Movement and attack speed drop (`SpeedFactor`, `AttackSpeedFactor`; attack speed only affects animations that honour `weaponSpeedMult`, MCO may ignore it), the block absorbs less (`BlockedDamageMult`, an approximation), the exhausted player deals less damage (`AttackDamageMult`) and less poise/posture (`AttackPoiseMult`), stamina does not regenerate while he keeps attacking, and every swing costs him poise (`SelfPoiseLightPercent` / `SelfPoiseHeavyPercent` of max); at 0 poise he stumbles back.
+**Exhaustion (stamina 0).** It no longer prevents blocking or attacking. There is no speed penalty any more (removed in 0.26.1), the block absorbs less (`BlockedDamageMult`, an approximation), the exhausted player deals less damage (`AttackDamageMult`) and less poise/posture (`AttackPoiseMult`), stamina does not regenerate while he keeps attacking, and every swing costs him poise (`SelfPoiseLightPercent` / `SelfPoiseHeavyPercent` of max: Easy 20/25, Normal 25/30, Hard 35/50); at 0 poise he stumbles back (auto-stagger).
 
 **Broken posture (player).** No bleedout and no knockdown: he stumbles back and stays exposed for `PlayerBrokenSeconds` (damage x `PlayerBrokenDamageMult`, stamina 0, cannot block).
 
@@ -71,6 +74,13 @@ Presets (Hard = strictest):
 | Low zone regen / poise damage | x0.8 / x1.1 | x0.7 / x1.2 | x0.6 / x1.25 |
 | Regen at poise < 50% / < 25% | x0.85 / x0.7 | x0.8 / x0.6 | x0.75 / x0.5 |
 
+## Safety, repair and performance (v0.26)
+
+- `[Safety] ControlsWatchdog=1` logs the player's control state (movement, fighting, menu, activate...) whenever it changes (`CONTROLS OK` / `CONTROLS BLOCKED`), to find which mod blocks saving/menus after a fight. `AutoFix=1` re-enables stuck controls after combat.
+- The extra-life/bleedout fallback no longer disables the menu or activate controls, and a save load releases any controls the mod had disabled.
+- MCM button *Repair game / prepare to uninstall*: restores speed, attack speed, stamina regen, GMSTs and controls. Press it, save, then you can remove the mod. The DLL writes nothing to the save; only the ESP scripts remain (use a save cleaner such as ReSaver if you want them gone).
+- `[Performance] Mode`: 0 normal, 1 light (debug log off, slower loops), 2 minimal (also no own HUD widget).
+
 ## Armor class per piece and hitch log (v0.25.2)
 
 The player's defense class now comes from each worn piece (`[Classes] WornMode=1`): body 45%, head/hands/feet 15% each, shield 10%; light armor counts 0.5, heavy 1.0, clothing 0. Score >= `WornScoreMid` is class 2, >= `WornScoreHeavy` class 3 (NPCs still use their armor rating). `WornMode=0` returns to the old total-weight rule.
@@ -101,3 +111,15 @@ Five tabs: **General & System**, **Stamina**, **Poise & Posture**, **Stagger & B
 ## Troubleshooting
 
 - Movement speed stuck low: set `[Exhaustion] RepairSpeedOnLoad=1`, load a save; the speed is reset once and the key returns to 0. Console alternative: `player.getav speedmult`, then `player.modav speedmult <missing amount>`.
+
+## License
+
+GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / SoftTarget LE. Stagger spell records follow "SGC Stagger on hit". References: doodlum "Poise" (SE), TrueHUD LE API (Mhacks79, based on Ersh's TrueHUD).
+
+## v0.26.2 - diagnostic switches, ini cache, DLL-owns-block experiment
+
+* **INI is read once and cached**; the MCM no longer reloads the whole .ini after every key it writes (it wrote ~200 keys when the menu closed or a save loaded, which made the FPS drop). Writes that do not change the value are skipped, and the DLL reloads the file once, within about 2 s.
+* **`[Debug]` switches** (all 0 by default): `DisableHealthHook`, `DisableNotifyHook`, `DisableBlockStamina`, `DisableParryWindow`. Turn them off one at a time to find which function breaks the block. The two hooks need a game restart.
+* **`[Safety] BridgeMinimal=1`**: the mod's Papyrus stops all cycle work and per-swing handling (diagnostic only).
+* **`[Inpa] Mode=0` (experimental)**: the DLL owns the parry window, the parry effects and the damage hook; Inpa's player spells and master switch are turned off at game load. `Mode=1` hands everything back to Inpa.
+* The CI now builds on `windows-2022` instead of `windows-latest`, so the compiler does not change by itself.

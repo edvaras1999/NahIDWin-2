@@ -179,6 +179,15 @@ Event OnUpdate()
 		sInitAt = Utility.GetCurrentRealTime() + 40.0
 		LateInit()
 	endif
+	if Utility.GetCurrentRealTime() >= wdPerfNext
+		wdPerfNext = Utility.GetCurrentRealTime() + 20.0
+		RefreshPerf()
+	endif
+	if bridgeMin
+		; [Safety] BridgeMinimal=1 (diagnostic): the mod's Papyrus does no per-cycle work at all
+		RegisterForSingleUpdate(loopIdle)
+		return
+	endif
 	CheckExhaust()
 	ApplyRegen()
 	ControlsWatchdog()
@@ -192,6 +201,7 @@ EndEvent
 
 ; ---------------- v0.26: seguranca (vigia de controles), reparo e desempenho ----------------
 bool ctrlHeld = false
+bool bridgeMin = false
 float loopCombat = 0.5
 float loopIdle = 2.5
 float wdNext = 0.0
@@ -200,6 +210,7 @@ string wdLast = ""
 int wdBad = 0
 
 Function RefreshPerf()
+	bridgeMin = NahIDWinNative.IniGetF("Safety", "BridgeMinimal", 0.0) > 0.5
 	float pm = NahIDWinNative.IniGetF("Performance", "Mode", 0.0)
 	; the combat loop is NEVER slowed (stamina and exhaustion depend on it); only the idle loop is slower in the Light/Minimal modes
 	loopCombat = 0.5
@@ -224,10 +235,6 @@ Function ControlsWatchdog()
 	float t = Utility.GetCurrentRealTime()
 	if t < wdNext
 		return
-	endif
-	if t >= wdPerfNext
-		wdPerfNext = t + 20.0
-		RefreshPerf()
 	endif
 	if NahIDWinNative.IniGetF("Safety", "ControlsWatchdog", 1.0) < 0.5
 		wdNext = t + 10.0
@@ -651,6 +658,9 @@ EndFunction
 
 ; Cada golpe do jogador gasta estamina (mesmo sem acertar). O custo depende da arma, do tipo de golpe e da armadura.
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
+	if bridgeMin
+		return
+	endif
 	Actor pl = Game.GetPlayer()
 	if asEventName == "recoilStop" || asEventName == "staggerStop" || asEventName == "ragdollEnd" || asEventName == "GetUpStart" || asEventName == "GetUpEnd"
 		NahIDWinNative.Log("PLAYER ANIM: " + asEventName)
