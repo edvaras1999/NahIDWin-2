@@ -857,6 +857,13 @@ Function DoParryFX(Actor victim)
 	if ex
 		victim.PlaceAtMe(ex)
 	endif
+	; v0.26.4: with [Parry] NativeSound=1 (Mode 0) the DLL plays the parry sound itself: do not play it twice
+	if NahIDWinNative.IniGetF("Parry", "NativeSound", 1.0) >= 0.5 && NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5
+		if victim == Game.GetPlayer() && NahIDWinNative.IniGetF("Parry", "BlockReactEvents", 1.0) < 0.5
+			Debug.SendAnimationEvent(victim, "blockHitStart")
+		endif
+		return
+	endif
 	int left = victim.GetEquippedItemType(0)
 	int right = victim.GetEquippedItemType(1)
 	Sound snd

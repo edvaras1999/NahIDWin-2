@@ -62,7 +62,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.26.3 (Inpa scripts, block reaction events)"
+#define PLUGIN_VERSION_STR	"0.26.3 (native sound, block owner log)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -251,6 +251,8 @@ namespace
 
 		// avisos e golpes proprios
 		// parry proprio (janela depois de levantar o bloqueio)
+		int		nativeSound;			// v0.26.4: the DLL plays the parry/block sound itself (LE 1.9.32 audio functions, see PlaySoundAt)
+		int		blockSound;				// 1 = also on a normal block (Mode 0)
 		int		blockReact;				// v0.26.3: Mode 0 (DLL) - on a blocked hit the DLL sends the block-hit animation events to the player
 		int		blockReactStopMs;		// delay before the end event
 		char	blockHitEvent[48];
@@ -623,6 +625,8 @@ namespace
 		c.logPlayerDamage	= IniI("Inpa", "LogPlayerDamage", 1);
 		c.powerOwnCost		= IniF("Stamina", "PowerAttackOwnCost", 0.0f);
 		c.parryWindowMs		= IniI("Parry", "WindowMs", 300);
+		c.nativeSound		= IniI("Parry", "NativeSound", 1);
+		c.blockSound		= IniI("Parry", "NativeBlockSound", 1);
 		c.blockReact		= IniI("Parry", "BlockReactEvents", 1);
 		c.blockReactStopMs	= IniI("Parry", "BlockReactStopMs", 250);
 		GetPrivateProfileStringA("Parry", "BlockHitEvent", "blockHitStart", c.blockHitEvent, sizeof(c.blockHitEvent), g_iniPath);
@@ -816,6 +820,7 @@ namespace
 		WIN32_FILE_ATTRIBUTE_DATA fad;
 		if(GetFileAttributesExA(g_iniPath, GetFileExInfoStandard, &fad)) g_iniTime = fad.ftLastWriteTime;
 
+		_MESSAGE("BLOCK OWNER: %s (native sound %d, block sound %d)", c.inpaMode ? "Mode 1 = Inpa (scripts decide the parry window)" : "Mode 0 = DLL (own parry window)", c.nativeSound, c.blockSound);
 		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d)", c.perfMode, c.tickMs, c.diag);
 		_MESSAGE("config: enabled=%d player=%d npcs=%d staggerMode=%d (slot %d, '%s') posture=%d (difficulty %.2f) hud=%d bar=%d diag=%d  [%s]",
 			c.enabled, c.applyPlayer, c.applyNPCs, c.staggerMode, c.nativeSlot, c.nativeEvent, c.postureEnabled, c.postureDifficulty, c.hudEnabled, c.hudBar, c.diag, g_iniPath);
@@ -889,6 +894,7 @@ namespace
 	DWORD g_fleeTick = 0;
 	extern volatile DWORD g_exhaustBlockUntil;
 	extern volatile LONG g_playerExhausted;
+	volatile LONG	g_plWeaponType = -1;	// v0.26.4: type of the last weapon the player hit with (picks the parry sound)
 	volatile LONG	g_leftType = 0;			// tipo do item da mao esquerda (Papyrus GetEquippedItemType: 10 = escudo)
 	volatile LONG	g_deflectOn = 0;		// parry numa magia: enquanto segurar o bloqueio, a magia e devolvida
 	volatile DWORD	g_deflectStart = 0;
@@ -2654,6 +2660,7 @@ namespace
 		}
 		const bool heavyHit = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0;
 
+		if(h.attackerIsActor && h.attacker.isPlayer && h.sourceKind == 1) g_plWeaponType = h.weaponType;
 		bool parry = false, immune = false;
 		if(g_cfg.dbgNoParry)
 		{
@@ -3972,6 +3979,88 @@ namespace
 	// v0.26.3 (Mode 0, DLL owns the block): a blocked hit on the player sends the same animation events Inpa's scripts use (blockHitStart, later blockHitStop)
 	// so the block-hit animations of the player's graph play. Only behavior events through the animation graph; no engine addresses.
 	DWORD g_blockReactStopAt = 0;
+
+	// ---- v0.26.4: native sound (TESV.exe 1.9.32, same call sequence as Papyrus Sound.Play at 0x9172B0 and as the Valhalla Combat mod)
+	// 0xB9A5D0 audio manager getter | 0xB9D1A0 build(handle, soundFormId, 0x10) | 0xB9A0F0 position(x,y,z) | 0xB9A2E0 node | 0xB99ED0 play
+	struct SndHandle { UInt32 id; UInt8 ok; UInt8 pad[3]; UInt32 state; };
+	int g_sndState = 0;	// 0 = not checked, 1 = ok, -1 = disabled (bytes do not match this executable)
+	bool SndBytesMatch(UInt32 addr, const UInt8 * want, int n)
+	{
+		__try { return memcmp((const void *)addr, want, n) == 0; }
+		__except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+	}
+	bool SndCheck()
+	{
+		if(g_sndState) return g_sndState > 0;
+		static const UInt8 a0[] = { 0xA1, 0x08, 0xED, 0xB9, 0x01, 0xC3 };
+		static const UInt8 a1[] = { 0x51, 0x56, 0x8B, 0xF1, 0x8B, 0x86 };
+		static const UInt8 a2[] = { 0x8B, 0x09, 0x32, 0xC0, 0x83, 0xF9, 0xFF };
+		static const UInt8 a3[] = { 0x57, 0x8B, 0xF9, 0x83, 0x3F, 0xFF };
+		static const UInt8 a4[] = { 0x8B, 0x11, 0x32, 0xC0, 0x83, 0xFA, 0xFF };
+		const bool ok = SndBytesMatch(0x00B9A5D0, a0, sizeof(a0)) && SndBytesMatch(0x00B9D1A0, a1, sizeof(a1)) && SndBytesMatch(0x00B9A0F0, a2, sizeof(a2)) &&
+			SndBytesMatch(0x00B9A2E0, a3, sizeof(a3)) && SndBytesMatch(0x00B99ED0, a4, sizeof(a4));
+		g_sndState = ok ? 1 : -1;
+		_MESSAGE("native sound: executable check %s", ok ? "OK (all 5 functions match TESV.exe 1.9.32)" : "FAILED - native sound disabled");
+		return ok;
+	}
+	bool PlaySoundAt(TESObjectREFR * ref, UInt32 soundId)
+	{
+		if(!ref || !soundId || !SndCheck()) return false;
+		__try
+		{
+			void * node = NULL;
+			{
+				void * fn = ReadVtblSlot((void *)ref, 0x70);	// virtual at +0x1C0: the 3D node (Sound.Play uses it)
+				if(!fn) return false;
+				typedef void * (__thiscall * NodeFn)(void *);
+				node = ((NodeFn)fn)((void *)ref);
+			}
+			if(!node) return false;
+			typedef void * (__cdecl * MgrFn)(void);
+			typedef void (__thiscall * BuildFn)(void *, SndHandle *, UInt32, UInt32);
+			typedef char (__thiscall * PosFn)(SndHandle *, float, float, float);
+			typedef void (__thiscall * NodeSetFn)(SndHandle *, void *);
+			typedef char (__thiscall * PlayFn)(SndHandle *);
+			SndHandle h; h.id = 0xFFFFFFFF; h.ok = 0; h.pad[0] = h.pad[1] = h.pad[2] = 0; h.state = 0;
+			void * mgr = ((MgrFn)0x00B9A5D0)();
+			if(!mgr) return false;
+			((BuildFn)0x00B9D1A0)(mgr, &h, soundId, 0x10);
+			if(!((PosFn)0x00B9A0F0)(&h, ref->pos.x, ref->pos.y, ref->pos.z)) return false;
+			((NodeSetFn)0x00B9A2E0)(&h, node);
+			((PlayFn)0x00B99ED0)(&h);
+			return true;
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+	}
+	// form id of a record of NahIDWin.esp (local id -> load order index), 0 if not loaded
+	UInt32 EspSoundId(UInt32 localId)
+	{
+		DataHandler * dh = *((DataHandler **)0x012E2CB8);
+		if(!dh) return 0;
+		const UInt32 n = dh->modList.loadedModCount;
+		for(UInt32 i = 0; i < n && i < 0xFF; i++)
+		{
+			const ModInfo * mi = dh->modList.loadedMods[i];
+			if(mi && _stricmp(mi->name, "NahIDWin.esp") == 0) return ((UInt32)i << 24) | (localId & 0x00FFFFFF);
+		}
+		return 0;
+	}
+	// same table the Papyrus DoParryFX used: shield 811, fist 812, dagger 813, mace / 2h axe 814, other 815
+	void PlayBlockSound(bool parry)
+	{
+		if(g_cfg.inpaMode || !g_cfg.nativeSound || (!parry && !g_cfg.blockSound)) return;
+		TESObjectREFR * pl = (TESObjectREFR *)Engine::Player();
+		if(!pl) return;
+		const int rt = (int)g_plWeaponType;
+		UInt32 local = 0x815;
+		if(g_leftType == 10) local = 0x811;
+		else if(rt == 0) local = 0x812;
+		else if(rt == 2) local = 0x813;
+		else if(rt == 4 || rt == 6) local = 0x814;
+		const bool ok = PlaySoundAt(pl, EspSoundId(local));
+		static volatile LONG sl = 0;
+		if(g_cfg.diag && InterlockedIncrement(&sl) <= 60) _MESSAGE("native sound: %s %08X -> %s", parry ? "parry" : "block", EspSoundId(local), ok ? "played" : "FAILED");
+	}
 	bool SendPlayerAnimEvent(const char * ev, const char * why)
 	{
 		TESObjectREFR * pl = (TESObjectREFR *)Engine::Player();
@@ -3988,9 +4077,13 @@ namespace
 	}
 	void PlayerBlockReact(const char * why)
 	{
-		if(g_cfg.inpaMode || !g_cfg.blockReact) return;
-		SendPlayerAnimEvent(g_cfg.blockHitEvent, why);
-		g_blockReactStopAt = GetTickCount() + (DWORD)(g_cfg.blockReactStopMs > 50 ? g_cfg.blockReactStopMs : 50);
+		if(g_cfg.inpaMode) return;
+		if(g_cfg.blockReact)
+		{
+			SendPlayerAnimEvent(g_cfg.blockHitEvent, why);
+			g_blockReactStopAt = GetTickCount() + (DWORD)(g_cfg.blockReactStopMs > 50 ? g_cfg.blockReactStopMs : 50);
+		}
+		PlayBlockSound(why[0] == 'p');
 	}
 	void TickBlockReact(DWORD now)
 	{

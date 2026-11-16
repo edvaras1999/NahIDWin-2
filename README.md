@@ -129,3 +129,7 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Root cause of the broken Inpa block/parry: the Inpa scripts (scripts/zzzSekiro_*.pex) were missing from the package. Copy them from the original Inpa mod (private package only).
 - Mode 0 (DLL parry): blocked hits on the player send blockHitStart / blockHitStop (see [Parry] BlockReact*). Logged as BLOCK-REACT.
 - Log text of PARRY now names the real source; BLOCK-LAG blockStop metric fixed.
+
+## v0.26.4
+- Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
+- Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
