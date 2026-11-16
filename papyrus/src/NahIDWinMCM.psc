@@ -93,7 +93,7 @@ int sFlag = 0
 ; 31 player_difficulty_on 32 player_taken 33 npc_difficulty_on 34 npc_taken
 
 int Function GetVersion()
-	return 34
+	return 37
 EndFunction
 
 ; Bloquear flechas/magia e resistir veneno vem do .ini ([Inpa] BlockArrow, BlockMagic, ResistPoison); ligados por omissao.
@@ -141,6 +141,7 @@ EndFunction
 Event OnGameReload()
 	parent.OnGameReload()
 	ApplyIniGlobals()
+	ApplyOwner()
 EndEvent
 
 Event OnVersionUpdate(int a_version)
@@ -155,6 +156,7 @@ EndEvent
 Event OnConfigInit()
 	SetupPages()
 	ApplyIniGlobals()
+	ApplyOwner()
 EndEvent
 
 Function SetupPages()
@@ -184,6 +186,10 @@ string Function Orange(string t)
 EndFunction
 
 bool Function ModOn()
+	if NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5
+		; the DLL owns block/parry: Inpa's master switch is off on purpose, so only our own switch counts
+		return NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
+	endif
 	if zzzSekiro_MCM_turn
 		return zzzSekiro_MCM_turn.GetValue() > 0.5
 	endif
@@ -449,6 +455,15 @@ EndFunction
 
 ; Liga ou desliga o Inpa e o NahIDWin em conjunto.
 Function SetModOn(bool a_on)
+	if NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5 && NahIDWinNative.IniGetF("Menu", "OwnerStripped", 0.0) > 0.5
+		; the DLL owns block/parry: Inpa stays off, only our own switch changes
+		if a_on
+			NahIDWinNative.IniSetF("General", "Enabled", 1.0)
+		else
+			NahIDWinNative.IniSetF("General", "Enabled", 0.0)
+		endif
+		return
+	endif
 	if a_on
 		zzzSekiro_MCM_turn.SetValue(1.0)
 		NahIDWinNative.IniSetF("General", "Enabled", 1.0)
@@ -468,17 +483,42 @@ Function SetModOn(bool a_on)
 	else
 		zzzSekiro_MCM_turn.SetValue(0.0)
 		NahIDWinNative.IniSetF("General", "Enabled", 0.0)
-		Strip(zzzSekiro_player_main_spell)
-		Strip(zzzSekiro_player_main2_spell)
-		Strip(zzzSekiro_player_main3_spell)
-		Strip(zzzSekiro_cloak_spell)
-		Strip(zzzSekiro_regen_blocking_spell)
-		Strip(zzzSekiro_ward_spell)
-		Strip(zzzSekiro_player_parrytimer_spell)
-		Strip(zzzSekiro_player_parry_spell)
-		Strip(zzzSekiro_player_parry2_spell)
-		Strip(zzzSekiro_player_parry3_spell)
-		Strip(zzzSekiro_zzResurrection_spell)
+		StripInpaSpells()
+	endif
+EndFunction
+
+Function StripInpaSpells()
+	Strip(zzzSekiro_player_main_spell)
+	Strip(zzzSekiro_player_main2_spell)
+	Strip(zzzSekiro_player_main3_spell)
+	Strip(zzzSekiro_cloak_spell)
+	Strip(zzzSekiro_regen_blocking_spell)
+	Strip(zzzSekiro_ward_spell)
+	Strip(zzzSekiro_player_parrytimer_spell)
+	Strip(zzzSekiro_player_parry_spell)
+	Strip(zzzSekiro_player_parry2_spell)
+	Strip(zzzSekiro_player_parry3_spell)
+	Strip(zzzSekiro_zzResurrection_spell)
+EndFunction
+
+; v0.26.2 (experimental): [Inpa] Mode=0 in the .ini = the DLL owns block/parry. Inpa's player spells and master switch are turned off here;
+; Mode=1 (default) leaves Inpa exactly as before (and restores it if it was turned off by Mode=0).
+Function ApplyOwner()
+	bool dllOwns = NahIDWinNative.IniGetF("Inpa", "Mode", 1.0) < 0.5
+	bool stripped = NahIDWinNative.IniGetF("Menu", "OwnerStripped", 0.0) > 0.5
+	if dllOwns
+		if !stripped
+			NahIDWinNative.IniSetF("Menu", "OwnerStripped", 1.0)
+		endif
+		if zzzSekiro_MCM_turn.GetValue() > 0.5 || !stripped
+			zzzSekiro_MCM_turn.SetValue(0.0)
+			StripInpaSpells()
+		endif
+	elseif stripped
+		NahIDWinNative.IniSetF("Menu", "OwnerStripped", 0.0)
+		if NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
+			SetModOn(true)
+		endif
 	endif
 EndFunction
 
@@ -537,10 +577,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 14 && buildTab == tab
+	if count > 0 && tableRev == 16 && buildTab == tab
 		return
 	endif
-	tableRev = 14
+	tableRev = 16
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -604,15 +644,13 @@ Function BuildTable(int tab)
 	AddSetting(3, 0, "Rage", "NPCChancePercent", "NPC: probabilidade (%)", "NPC: chance (%)", "Probabilidade por golpe recebido quando a condicao se cumpre.", "Chance per hit received when the condition is met.", 0.0, 100.0, 5.0, 50.0)
 	AddSetting(3, 0, "Rage", "NPCCooldownSeconds", "NPC: recarga (s)", "NPC: cooldown (s)", "Tempo minimo entre duas furias do mesmo NPC.", "Minimum time between two rages of the same NPC.", 5.0, 180.0, 5.0, 45.0)
 	AddSetting(3, 0, "Rage", "NPCCostPercent", "NPC: custo (%)", "NPC: cost (%)", "0 = gratis para os NPCs.", "0 = free for NPCs.", 0.0, 50.0, 1.0, 0.0)
-	AddSetting(4, 1, "Exhaustion", "Enabled", "Exaustao ligada", "Exhaustion enabled", "Estamina a zero: nao podes atacar nem regenerar por um tempo.", "Stamina at zero: you cannot attack or regenerate for a while.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(4, 1, "Exhaustion", "Enabled", "Exaustao ligada", "Exhaustion enabled", "Estamina a zero: sem regeneracao por um tempo; quem continua a bater cambaleia (auto-stagger). Sem penalidade de velocidade.", "Stamina at zero: no regeneration for a while; keep swinging and you stumble (auto-stagger). No speed penalty.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(4, 0, "Exhaustion", "Seconds", "Exaustao: duracao minima (s)", "Exhaustion: minimum duration (s)", "Tempo minimo sem regenerar estamina.", "Minimum time without stamina regeneration.", 1.0, 10.0, 0.5, 2.0)
-	AddSetting(4, 0, "Exhaustion", "SpeedFactor", "Exaustao: velocidade de movimento (x)", "Exhaustion: movement speed (x)", "0.7 = 70% da velocidade enquanto exausto. 1 = sem reducao.", "0.7 = 70% speed while exhausted. 1 = no slowdown.", 0.1, 1.0, 0.05, 0.7)
-	AddSetting(4, 0, "Exhaustion", "AttackSpeedFactor", "Exaustao: velocidade de ataque (x)", "Exhaustion: attack speed (x)", "0.7 = ataques a 70% da velocidade enquanto exausto. 1 = sem reducao.", "0.7 = attacks at 70% speed while exhausted. 1 = no slowdown.", 0.1, 1.0, 0.05, 0.7)
 	AddSetting(4, 0, "Exhaustion", "BlockedDamageMult", "Exaustao: dano que passa o bloqueio (x)", "Exhaustion: damage through the block (x)", "Exausto, o bloqueio absorve menos: o dano que passa multiplica por isto (1 = sem efeito).", "While exhausted the block absorbs less: damage that gets through is multiplied by this (1 = no effect).", 1.0, 4.0, 0.1, 1.8)
 	AddSetting(4, 0, "Exhaustion", "AttackDamageMult", "Exaustao: dano que o jogador causa (x)", "Exhaustion: damage the player deals (x)", "0.4 = o jogador exausto causa 40% do dano (-60%).", "0.4 = the exhausted player deals 40% damage (-60%).", 0.1, 1.0, 0.05, 0.4)
 	AddSetting(4, 0, "Exhaustion", "AttackPoiseMult", "Exaustao: poise/postura que causa (x)", "Exhaustion: poise/posture dealt (x)", "Multiplica o dano de poise e postura que o jogador exausto causa.", "Multiplies the poise and posture damage the exhausted player deals.", 0.0, 1.0, 0.05, 0.5)
-	AddSetting(4, 0, "Exhaustion", "SelfPoiseLightPercent", "Exaustao: poise perdido por golpe leve (%)", "Exhaustion: poise lost per light swing (%)", "Cada golpe leve exausto gasta esta % do poise maximo do jogador. A 0 ele cambaleia.", "Each exhausted light swing costs this % of the player's max poise. At 0 he stumbles back.", 0.0, 50.0, 1.0, 10.0)
-	AddSetting(4, 0, "Exhaustion", "SelfPoiseHeavyPercent", "Exaustao: poise perdido por golpe forte (%)", "Exhaustion: poise lost per heavy swing (%)", "Idem para golpes fortes.", "Same for heavy swings.", 0.0, 80.0, 1.0, 20.0)
+	AddSetting(4, 0, "Exhaustion", "SelfPoiseLightPercent", "Exaustao: poise perdido por golpe leve (%)", "Exhaustion: poise lost per light swing (%)", "Cada golpe leve exausto gasta esta % do poise maximo do jogador. A 0 ele cambaleia (auto-stagger). Facil 20 / Normal 25 / Dificil 35.", "Each exhausted light swing costs this % of the player's max poise. At 0 he stumbles back (auto-stagger). Easy 20 / Normal 25 / Hard 35.", 0.0, 50.0, 1.0, 25.0)
+	AddSetting(4, 0, "Exhaustion", "SelfPoiseHeavyPercent", "Exaustao: poise perdido por golpe forte (%)", "Exhaustion: poise lost per heavy swing (%)", "Idem para golpes fortes. Facil 25 / Normal 30 / Dificil 50.", "Same for heavy swings. Easy 25 / Normal 30 / Hard 50.", 0.0, 80.0, 1.0, 30.0)
 	AddSetting(4, 0, "Exhaustion", "PoiseDamageMult", "Exaustao: dano de poise/postura (x)", "Exhaustion: poise/posture damage (x)", "Quem esta exausto leva mais dano de poise e postura.", "Whoever is exhausted takes more poise and posture damage.", 1.0, 3.0, 0.1, 1.5)
 	AddSetting(4, 0, "Exhaustion", "RecoverStamina", "Exaustao: estamina recuperada no fim", "Exhaustion: stamina recovered at the end", "Estamina que o jogador recupera quando a exaustao acaba.", "Stamina the player gets back when exhaustion ends.", 0.0, 200.0, 5.0, 50.0)
 	AddSetting(4, 0, "Exhaustion", "StopSeconds", "Exaustao: parar para recuperar (s)", "Exhaustion: stop to recover (s)", "Segundos sem atacar para receber a estamina de volta. Quem insiste em bater nao recupera.", "Seconds without swinging to get the stamina back. Keep swinging and you do not recover.", 0.0, 5.0, 0.1, 1.5)
@@ -688,6 +726,9 @@ Function BuildTable(int tab)
 	AddSetting(19, 1, "Magic", "DeflectEnabled", "Deflexao de magia", "Magic deflect", "Depois de um parry numa magia, enquanto seguras o bloqueio a magia e devolvida ao conjurador.", "After parrying a spell, while you hold block the spell is reflected to the caster.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(19, 0, "Magic", "DotPoiseMult", "Magia continua: poise/postura (x)", "Continuous magic: poise/posture (x)", "Fracao do poise/postura de magia continua (Chamas...). O golpe conta no maximo 1 vez por segundo.", "Fraction of poise/posture from continuous magic (Flames...). Counts at most once per second.", 0.0, 1.0, 0.05, 0.5)
 	AddSetting(20, 1, "Stagger", "Behavior", "Eventos de behavior (POISE)", "Behavior events (POISE)", "Ligado: usa as animacoes do mod Nemesis NahIDWin Behavior (poise_*). So ligar depois de instala-lo e rodar o Nemesis. Desligado: stagger vanilla.", "On: uses the animations of the NahIDWin Behavior Nemesis mod (poise_*). Turn on only after installing it and running Nemesis. Off: vanilla stagger.", 0.0, 1.0, 1.0, 0.0)
+	AddSetting(20, 1, "Safety", "ControlsWatchdog", "Vigia de controles (log)", "Controls watchdog (log)", "Regista no log quando algum controle do jogador (menu, movimento, etc.) fica bloqueado. Ajuda a achar o mod que impede de salvar.", "Logs when a player control (menu, movement, etc.) gets blocked. Helps find the mod that stops saving.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(20, 1, "Safety", "AutoFix", "Reativar controles presos (automatico)", "Auto re-enable stuck controls", "Se os controles ficarem bloqueados depois do combate (e fora de menus), o mod tenta reativa-los. Pode interferir em cenas de missoes.", "If controls stay blocked after combat (outside menus) the mod tries to re-enable them. May interfere with quest scenes.", 0.0, 1.0, 1.0, 0.0)
+	AddSetting(20, 0, "Performance", "Mode", "Modo de desempenho (0 normal, 1 leve, 2 minimo)", "Performance mode (0 normal, 1 light, 2 minimal)", "Leve: sem log de depuracao, ciclos mais lentos. Minimo: tambem sem as nossas barras no HUD. Reinicie o jogo para aplicar tudo.", "Light: no debug log, slower loops. Minimal: also no own HUD bars. Restart the game to apply everything.", 0.0, 2.0, 1.0, 0.0)
 	AddSetting(14, 1, "Execution", "Enabled", "Execucao garantida", "Guaranteed execution", "Acertar uma arma num alvo com a postura quebrada executa-o (feitico do Inpa). Bosses so depois da 1a vida.", "Hitting a posture-broken target with a weapon executes it (Inpa spell). Bosses only after their 1st life.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Criaturas grandes morrem de vez (sem animacao de execucao).", "Large creatures die outright (no execution animation).", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "MeleeOnly", "Executar so com golpe corpo a corpo", "Execute only on melee hits", "Flechas e bestas nunca executam.", "Arrows and crossbow bolts never execute.", 0.0, 1.0, 1.0, 1.0)
@@ -812,12 +853,10 @@ Function ApplyPreset(int tab, int lvl)
 		PV("Stamina", "PoiseLowRegenMult", 0.7, 0.6, 0.5)
 		PV("Stamina", "ClassRegenPenalty", 0.05, 0.08, 0.10)
 		PV("Exhaustion", "AttackDamageMult", 0.55, 0.4, 0.3)
-		PV("Exhaustion", "SelfPoiseLightPercent", 6.0, 10.0, 14.0)
-		PV("Exhaustion", "SelfPoiseHeavyPercent", 12.0, 20.0, 28.0)
+		PV("Exhaustion", "SelfPoiseLightPercent", 20.0, 25.0, 35.0)
+		PV("Exhaustion", "SelfPoiseHeavyPercent", 25.0, 30.0, 50.0)
 		PV("Posture", "PlayerBrokenSeconds", 3.0, 4.0, 5.0)
 		PV("Posture", "PlayerBrokenDamageMult", 1.5, 2.0, 2.5)
-		PV("Exhaustion", "SpeedFactor", 0.8, 0.7, 0.6)
-		PV("Exhaustion", "AttackSpeedFactor", 0.8, 0.7, 0.6)
 		PV("Exhaustion", "BlockedDamageMult", 1.4, 1.8, 2.2)
 		PV("Exhaustion", "Seconds", 1.5, 2.0, 2.0)
 		PV("Exhaustion", "MaxSeconds", 6.0, 7.0, 8.0)
@@ -1132,7 +1171,8 @@ Function DrawPage0()
 	Track(li, 7, 0)
 	Hdr("Master preset", "Predefinido geral")
 	Track(AddMenuOption(Tr("Apply to all tabs", "Aplicar a todas as abas"), LevelName(NahIDWinNative.IniGetF("Menu", "Master", 1.0) as int), sFlag), 13, 0)
-	DrawBlock(20, "Behavior (Nemesis)", "Behavior (Nemesis)")
+	DrawBlock(20, "Behavior, safety & performance", "Behavior, seguranca e desempenho")
+	Track(AddTextOption(Tr("Repair game / prepare to uninstall", "Reparar jogo / Preparar para desinstalar"), Tr("[ Run ]", "[ Executar ]"), 0), 30, 0)
 	Hdr("Parry Setting", "Parry")
 	GSli(1, "Parry & Deflect Timer", "Janela de Parry e Deflexao")
 	GTog(3, "Magic Reflect", "Refletir Magia")
@@ -1235,6 +1275,9 @@ Event OnOptionSelect(int a_option)
 		endif
 		NahIDWinNative.IniSetF("Menu", "Language", nv)
 		ForcePageReset()
+	elseif k == 30
+		SendModEvent("NahIDWin_Repair", "", 0.0)
+		Debug.Notification(Tr("Repair sent. Save the game now, then you can uninstall the mod.", "Reparo enviado. Salve o jogo agora; depois pode desinstalar o mod."))
 	elseif k == 10
 		float od = 0.0
 		if r == 3
