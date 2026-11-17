@@ -133,3 +133,9 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 ## v0.26.4
 - Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
 - Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
+
+## v0.27.0 - precomputed tables (stage A)
+- Weapon table: poise base, stagger factor and attack class of every weapon are computed once when the game data loads (and again only when the .ini changes). A hit does one binary search instead of a form lookup plus arithmetic. Weapons created in game (e.g. enchanted) use the same function on the spot, so results never differ.
+- Stat cache: mass, unarmed damage, max health, armor, level and boss flag of each actor are read once and reused for 1 s; current health and life state are always read live.
+- Keys: `[Performance] StatCache` and `TableCache` (both 1; 0 restores the old behaviour). With diagnostics on, the SUMMARY line `SUMMARY cache:` shows hits and misses.
+- No rules or values changed.
