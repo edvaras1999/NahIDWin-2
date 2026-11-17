@@ -62,7 +62,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.27.0 (precomputed tables + stat cache)"
+#define PLUGIN_VERSION_STR	"0.26.5 (native sound diagnostics)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -186,7 +186,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -449,7 +449,6 @@ namespace
 
 	void ApplyHealthGMST();
 
-	void OnConfigLoaded();
 	void LoadConfig()
 	{
 		IniCacheClear();
@@ -810,8 +809,6 @@ namespace
 		if(c.dbgNoHealth || c.dbgNoNotify || c.dbgNoBlockStam || c.dbgNoParry)
 			_MESSAGE("DEBUG SWITCHES ON: health hook off=%d, animation hook off=%d, block stamina off=%d, parry window off=%d", c.dbgNoHealth, c.dbgNoNotify, c.dbgNoBlockStam, c.dbgNoParry);
 		c.perfMode = IniI("Performance", "Mode", 0);
-		c.statCache = IniI("Performance", "StatCache", 1);		// v0.27.0: cache dos stats por ator (1 s)
-		c.tableCache = IniI("Performance", "TableCache", 1);	// v0.27.0: tabela de armas pre-calculada
 		c.tickMs = 0;
 		if(c.perfMode >= 1)
 		{
@@ -824,11 +821,10 @@ namespace
 		if(GetFileAttributesExA(g_iniPath, GetFileExInfoStandard, &fad)) g_iniTime = fad.ftLastWriteTime;
 
 		_MESSAGE("BLOCK OWNER: %s (native sound %d, block sound %d)", c.inpaMode ? "Mode 1 = Inpa (scripts decide the parry window)" : "Mode 0 = DLL (own parry window)", c.nativeSound, c.blockSound);
-		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d), stat cache %d, weapon table %d", c.perfMode, c.tickMs, c.diag, c.statCache, c.tableCache);
+		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d)", c.perfMode, c.tickMs, c.diag);
 		_MESSAGE("config: enabled=%d player=%d npcs=%d staggerMode=%d (slot %d, '%s') posture=%d (difficulty %.2f) hud=%d bar=%d diag=%d  [%s]",
 			c.enabled, c.applyPlayer, c.applyNPCs, c.staggerMode, c.nativeSlot, c.nativeEvent, c.postureEnabled, c.postureDifficulty, c.hudEnabled, c.hudBar, c.diag, g_iniPath);
 		ApplyHealthGMST();
-		OnConfigLoaded();
 	}
 
 	void MaybeReloadConfig(DWORD now)
@@ -1101,35 +1097,6 @@ namespace
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER) { return false; }
 	}
-	// ---- v0.27.0: cache dos stats por ator. O que quase nao muda (massa, desarmado, vida maxima, armadura, nivel, boss) e lido
-	// do jogo uma vez e reutilizado durante 1 s; a vida atual e o estado de vida continuam a ser lidos sempre.
-	struct StatCache { DWORD at; LONG gen; float mass, unarmed, armor, hpMax; int level; bool boss; };
-	std::map<UInt32, StatCache> g_statCache;
-	volatile LONG g_statGen = 1;
-	volatile LONG g_statHits = 0, g_statMiss = 0, g_wtHits = 0, g_wtMiss = 0, g_srcHits = 0;
-	const DWORD kStatTtlMs = 1000;
-	bool StatCacheGet(UInt32 id, DWORD now, StatCache * out)
-	{
-		bool ok = false;
-		Lock();
-		std::map<UInt32, StatCache>::iterator it = g_statCache.find(id);
-		if(it != g_statCache.end() && it->second.gen == g_statGen && (DWORD)(now - it->second.at) < kStatTtlMs) { *out = it->second; ok = true; }
-		Unlock();
-		return ok;
-	}
-	void StatCachePut(UInt32 id, const StatCache & c)
-	{
-		Lock();
-		if(g_statCache.size() > 1500) g_statCache.clear();
-		g_statCache[id] = c;
-		Unlock();
-	}
-	void StatCacheClear()
-	{
-		Lock();
-		g_statCache.clear();
-		Unlock();
-	}
 	// Sem objetos com destrutor: pode usar __try.
 	bool ReadActorStats(Actor * a, ActorStats * out)
 	{
@@ -1137,38 +1104,25 @@ namespace
 		{
 			out->id = a->formID;
 			out->isPlayer = (a->formID == 0x14);
-			StatCache c;
-			const DWORD now = GetTickCount();
-			if(g_cfg.statCache && StatCacheGet(out->id, now, &c))
+			float mass = 1.0f, unarmed = 0.0f;
+			TESRace * race = a->race;
+			if(race && race->formType == kFormType_Race)
 			{
-				if(g_cfg.diag) InterlockedIncrement(&g_statHits);
+				mass = race->data.mass;
+				unarmed = race->data.unarmedDamage;
 			}
-			else
-			{
-				float mass = 1.0f, unarmed = 0.0f;
-				TESRace * race = a->race;
-				if(race && race->formType == kFormType_Race)
-				{
-					mass = race->data.mass;
-					unarmed = race->data.unarmedDamage;
-				}
-				c.mass = (mass > 0.0f && mass < 10000.0f) ? mass : 1.0f;
-				c.unarmed = (unarmed > 0.0f && unarmed < 10000.0f) ? unarmed : 0.0f;
-				c.armor = a->actorValueOwner.GetCurrent((UInt32)g_cfg.armorAV);
-				if(!(c.armor >= 0.0f && c.armor < 100000.0f)) c.armor = 0.0f;
-				c.hpMax = a->actorValueOwner.GetMaximum(24);
-				if(!(c.hpMax > 0.0f && c.hpMax < 100000.0f)) c.hpMax = 100.0f;
-				c.boss = IsBossActor(a);
-				c.level = 1;
-				if(a->baseForm && a->baseForm->formType == kFormType_NPC) { const int lv = (int)CALL_MEMBER_FN(a, GetLevel)(); if(lv > 0 && lv < 1000) c.level = lv; }
-				c.at = now; c.gen = g_statGen;
-				if(g_cfg.statCache) { StatCachePut(out->id, c); if(g_cfg.diag) InterlockedIncrement(&g_statMiss); }
-			}
-			out->mass = c.mass; out->unarmed = c.unarmed; out->armor = c.armor; out->hpMax = c.hpMax;
-			out->boss = c.boss; out->level = c.level;
-			out->hp = a->actorValueOwner.GetCurrent(24);		// 24 = Health (sempre ao vivo)
+			out->mass = (mass > 0.0f && mass < 10000.0f) ? mass : 1.0f;
+			out->unarmed = (unarmed > 0.0f && unarmed < 10000.0f) ? unarmed : 0.0f;
+			out->armor = a->actorValueOwner.GetCurrent((UInt32)g_cfg.armorAV);
+			if(!(out->armor >= 0.0f && out->armor < 100000.0f)) out->armor = 0.0f;
+			out->hp = a->actorValueOwner.GetCurrent(24);		// 24 = Health
+			out->hpMax = a->actorValueOwner.GetMaximum(24);
+			if(!(out->hpMax > 0.0f && out->hpMax < 100000.0f)) out->hpMax = 100.0f;
 			if(!(out->hp >= 0.0f && out->hp <= out->hpMax * 4.0f)) out->hp = out->hpMax;
 			out->alive = (Engine::LifeState(a) == 0);
+			out->boss = IsBossActor(a);
+			out->level = 1;
+			if(a->baseForm && a->baseForm->formType == kFormType_NPC) { const int lv = (int)CALL_MEMBER_FN(a, GetLevel)(); if(lv > 0 && lv < 1000) out->level = lv; }
 			return true;
 		}
 		__except(EXCEPTION_EXECUTE_HANDLER)
@@ -1238,119 +1192,7 @@ namespace
 		float			weaponWeight;
 		float			weaponStagger;
 		int				weaponType;
-		float			weaponBase;		// v0.27.0: dano de poise base da arma (peso x fator + base do tipo), da tabela
-		float			weaponSf;		// fator de stagger da arma (1 + stagger x fator)
-		int				weaponCls0;		// classe de ataque da arma (1-3) sem golpe forte/bash
 	};
-
-	// ---- v0.27.0: tabela de armas pre-calculada. Montada uma vez ao carregar os dados (e de novo so quando o INI muda) a partir da lista
-	// de armas do jogo; cada golpe faz uma procura binaria em vez de LookupFormByID + leituras + contas. Armas fora da lista (criadas
-	// em jogo, por exemplo encantadas) usam a mesma funcao MakeWeaponRow na hora, por isso o resultado e sempre o mesmo.
-	struct WeaponRow { UInt32 id; int type; int cls0; float weight, stagger, poiseBase, staggerFactor; };
-	struct WeaponTable { int n; int cap; WeaponRow * rows; };
-	WeaponTable			g_wtBuf[2] = { { 0, 0, NULL }, { 0, 0, NULL } };
-	WeaponTable * volatile	g_wt = NULL;
-	int					g_wtNext = 0;
-	int					g_wtLoggedN = -1;
-
-	void MakeWeaponRow(UInt32 id, TESObjectWEAP * w, WeaponRow * r)
-	{
-		r->id = id;
-		r->weight = w->weight.weight;
-		r->stagger = w->stagger();
-		r->type = (int)w->type();
-		int t = r->type;
-		if(t < 0 || t > 9) t = 1;
-		r->poiseBase = r->weight * g_cfg.weightMult + g_cfg.typeBase[t];
-		r->staggerFactor = (r->stagger > 0.0f) ? (1.0f + r->stagger * g_cfg.staggerStatMult) : 1.0f;
-		int c;
-		const int ty = r->type;
-		if(ty == 0 || ty == 2) c = 1;
-		else if(ty == 5 || ty == 6) c = 3;
-		else if(r->weight < g_cfg.lightWeightMax) c = 1;
-		else if(r->weight < g_cfg.midWeightMax) c = 2;
-		else c = 3;
-		r->cls0 = c;
-	}
-	int WeaponRowCmp(const void * a, const void * b)
-	{
-		const UInt32 x = ((const WeaponRow *)a)->id;
-		const UInt32 y = ((const WeaponRow *)b)->id;
-		return (x < y) ? -1 : (x > y) ? 1 : 0;
-	}
-	int CollectWeapons(DataHandler * dh, WeaponRow * rows, int cap)
-	{
-		int k = 0;
-		__try
-		{
-			for(UInt32 i = 0; i < dh->weapons.count && k < cap; i++)
-			{
-				TESObjectWEAP * w = dh->weapons.arr.entries[i];
-				if(!w || w->formType != kFormType_Weapon || !w->formID) continue;
-				MakeWeaponRow(w->formID, w, &rows[k]);
-				k++;
-			}
-		}
-		__except(EXCEPTION_EXECUTE_HANDLER) { }
-		return k;
-	}
-	void BuildWeaponTable()
-	{
-		if(!g_cfg.tableCache) return;
-		DataHandler * dh = *((DataHandler **)0x012E2CB8);
-		if(!dh) return;
-		const int n = (int)dh->weapons.count;
-		if(n <= 0 || n > 200000) return;
-		WeaponTable & t = g_wtBuf[g_wtNext];		// o buffer que nao esta publicado
-		if(!t.rows || t.cap < n)
-		{
-			free(t.rows);
-			t.rows = (WeaponRow *)malloc(sizeof(WeaponRow) * (size_t)n);
-			t.cap = t.rows ? n : 0;
-			t.n = 0;
-			if(!t.rows) return;
-		}
-		const int k = CollectWeapons(dh, t.rows, t.cap);
-		qsort(t.rows, (size_t)k, sizeof(WeaponRow), WeaponRowCmp);
-		t.n = k;
-		g_wt = &t;
-		g_wtNext ^= 1;
-		if(g_wtLoggedN != k) { g_wtLoggedN = k; _MESSAGE("weapon table: %d weapons precomputed (poise base, stagger factor, attack class)", k); }
-	}
-	const WeaponRow * FindWeaponRow(UInt32 id)
-	{
-		WeaponTable * t = g_wt;
-		if(!t || t->n <= 0) return NULL;
-		int lo = 0, hi = t->n - 1;
-		while(lo <= hi)
-		{
-			const int mid = (lo + hi) >> 1;
-			const UInt32 v = t->rows[mid].id;
-			if(v == id) return &t->rows[mid];
-			if(v < id) lo = mid + 1; else hi = mid - 1;
-		}
-		return NULL;
-	}
-	// Origens que nao sao armas (feiticos, etc.): 1 = outra coisa, bit 2 = feitico proprio do NahIDWin. Guardado para nao procurar o formulario a cada golpe.
-	std::map<UInt32, unsigned char> g_srcKind;
-	unsigned char SourceKindGet(UInt32 id)
-	{
-		unsigned char v = 0;
-		Lock();
-		std::map<UInt32, unsigned char>::iterator it = g_srcKind.find(id);
-		if(it != g_srcKind.end()) v = it->second;
-		Unlock();
-		return v;
-	}
-	void SourceKindPut(UInt32 id, unsigned char v)
-	{
-		Lock();
-		if(g_srcKind.size() > 3000) g_srcKind.clear();
-		g_srcKind[id] = v;
-		Unlock();
-	}
-
-
 
 	bool ReadHit(TESHitEvent * evn, HitInfo * h)
 	{
@@ -1377,52 +1219,26 @@ namespace
 			h->projId = evn->projectileFormID;
 			if(h->sourceId)
 			{
-				WeaponRow tmp;
-				const WeaponRow * r = NULL;
-				unsigned char sk = 0;
-				if(g_cfg.tableCache)
+				TESForm * form = LookupFormByID(h->sourceId);
+				if(form)
 				{
-					r = FindWeaponRow(h->sourceId);
-					if(r) { tmp = *r; r = &tmp; if(g_cfg.diag) InterlockedIncrement(&g_wtHits); }
+					if(form->formType == kFormType_Weapon)
+					{
+						TESObjectWEAP * w = (TESObjectWEAP *)form;
+						h->sourceKind = 1;
+						h->weaponWeight = w->weight.weight;
+						h->weaponStagger = w->stagger();
+						h->weaponType = (int)w->type();
+					}
 					else
 					{
-						sk = SourceKindGet(h->sourceId);
-						if(sk && g_cfg.diag) InterlockedIncrement(&g_srcHits);
-					}
-				}
-				if(!r && !sk)
-				{
-					if(g_cfg.diag) InterlockedIncrement(&g_wtMiss);
-					TESForm * form = LookupFormByID(h->sourceId);
-					if(form)
-					{
-						if(form->formType == kFormType_Weapon) { MakeWeaponRow(h->sourceId, (TESObjectWEAP *)form, &tmp); r = &tmp; }
-						else
+						h->sourceKind = 2;
+						if(g_cfg.ignoreOwnSpells && form->formType == kFormType_Spell)
 						{
-							sk = 1;
-							if(form->formType == kFormType_Spell)
-							{
-								TESFullName * fn = DYNAMIC_CAST(form, TESForm, TESFullName);
-								if(fn && fn->name.data && strncmp(fn->name.data, "NahIDWin", 8) == 0) sk |= 2;
-							}
-							if(g_cfg.tableCache) SourceKindPut(h->sourceId, sk);
+							TESFullName * fn = DYNAMIC_CAST(form, TESForm, TESFullName);
+							if(fn && fn->name.data && strncmp(fn->name.data, "NahIDWin", 8) == 0) h->ownSpell = true;
 						}
 					}
-				}
-				if(r)
-				{
-					h->sourceKind = 1;
-					h->weaponWeight = r->weight;
-					h->weaponStagger = r->stagger;
-					h->weaponType = r->type;
-					h->weaponBase = r->poiseBase;
-					h->weaponSf = r->staggerFactor;
-					h->weaponCls0 = r->cls0;
-				}
-				else if(sk)
-				{
-					h->sourceKind = 2;
-					if(g_cfg.ignoreOwnSpells && (sk & 2)) h->ownSpell = true;
 				}
 			}
 			return true;
@@ -1569,11 +1385,6 @@ namespace
 
 	bool			g_stamBroken = false;
 	bool			g_dataLoaded = false;
-	void OnConfigLoaded()
-	{
-		InterlockedIncrement(&g_statGen);	// os stats em cache dependem do INI (armorAV, boss)
-		if(g_dataLoaded) BuildWeaponTable();	// os valores da tabela dependem do INI
-	}
 	volatile LONG	g_stamHits = 0;
 
 	// ------------------------------------------------------------------ TrueHUD
@@ -2103,7 +1914,6 @@ namespace
 		g_states.clear();
 		g_combatants.clear();
 		Unlock();
-		InterlockedIncrement(&g_statGen); StatCacheClear();
 		g_parryUntil = 0;
 		g_parryReadyAt = 0;
 		g_parryHitDone = 0;
@@ -2140,7 +1950,6 @@ namespace
 		_MESSAGE("SUMMARY: hits=%d applied=%d poiseBreaks=%d postureBreaks=%d light=%d medium=%d parries=%d rages=%d | shield blocked=%d | events sent=%d acked=%d pending=%d | script started=%d | latency avg=%d ms max=%d ms (n=%d) | tracked=%d faults=%d | truehud=%s",
 			(int)g_hits, (int)g_applied, (int)g_breaks, (int)g_postureBreaks, (int)g_lightSent, (int)g_mediumSent, (int)g_parries, (int)g_rages, (int)g_shieldBlocked, (int)g_sent, (int)g_acks, (int)(g_sent - g_acks), (int)g_scriptReady,
 			latCount ? (int)(latSum / latCount) : 0, (int)latMax, (int)latCount, (int)tracked, (int)g_faults, g_hud ? "on" : "off");
-		_MESSAGE("SUMMARY cache: stats hit=%d miss=%d | weapon table hit=%d, outside table=%d, non-weapon cache hit=%d", (int)g_statHits, (int)g_statMiss, (int)g_wtHits, (int)g_wtMiss, (int)g_srcHits);
 		if(g_sent > 0 && g_acks == 0)
 			_MESSAGE("WARNING: stagger events were sent but the Papyrus script never answered. The script is not running or the mod event was not registered (is NahIDWin.esp enabled? is the .pex installed?)");
 		else if(g_sent - g_acks > 3)
@@ -2183,9 +1992,9 @@ namespace
 		{
 			int t = h.weaponType;
 			if(t < 0 || t > 9) t = 1;
-			dmg = h.weaponBase;		// da tabela: peso x fator + base do tipo
+			dmg = h.weaponWeight * g_cfg.weightMult + g_cfg.typeBase[t];
 			if(t == 0) dmg += h.attacker.unarmed * g_cfg.unarmedMult;	// punhos
-			dmg *= h.weaponSf;		// da tabela: 1 + stagger x fator (1 se a arma nao tem stagger)
+			if(h.weaponStagger > 0.0f) dmg *= (1.0f + h.weaponStagger * g_cfg.staggerStatMult);
 		}
 		else if(h.sourceKind == 2)
 		{
@@ -2218,7 +2027,12 @@ namespace
 		int c = 1;
 		if(h.sourceKind == 1)
 		{
-			c = h.weaponCls0;		// da tabela (tipo/peso da arma)
+			const int t = h.weaponType;
+			if(t == 0 || t == 2) c = 1;
+			else if(t == 5 || t == 6) c = 3;
+			else if(h.weaponWeight < g_cfg.lightWeightMax) c = 1;
+			else if(h.weaponWeight < g_cfg.midWeightMax) c = 2;
+			else c = 3;
 		}
 		else if(h.sourceKind == 2) c = g_cfg.magicClass;
 		else
@@ -5311,7 +5125,6 @@ namespace
 				}
 				else _MESSAGE("WARNING: the input dispatcher is not available - no parry and no rage key");
 				g_dataLoaded = true;
-				BuildWeaponTable();
 				InstallHudSink();
 				InstallHealthHook();
 				ApplyHealthGMST();
