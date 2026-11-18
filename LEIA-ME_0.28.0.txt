@@ -5,6 +5,7 @@ Substituir no repositorio (mantendo as pastas):
   papyrus/src/NahIDWinBridge.psc
   papyrus/src/NahIDWinNative.psc
   papyrus/src/NahIDWinMCM.psc
+  papyrus/stubs/Form.psc   (so serve para compilar: o stub nao tinha UnregisterForAnimationEvent, que existe no jogo)
   dist/Data/SKSE/Plugins/NahIDWin.ini
   README.md
 Depois compilar (Actions): DLL e os .pex (os .psc mudaram, entao os .pex tem de ser recompilados e instalados juntos com a DLL).
