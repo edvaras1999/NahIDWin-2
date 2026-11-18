@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.28.0 (light Papyrus, one master switch, Inpa deflect)"
+#define PLUGIN_VERSION_STR	"0.28.2 (light Papyrus, one master switch, native swing cost, Inpa stamina rules off for NPCs too)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -3921,13 +3921,13 @@ namespace
 				if(gap >= (DWORD)g_cfg.hitchMs && gap < 2500 && (DWORD)(tn - g_lastActTick) < 8000 && InterlockedIncrement(&hitchLogged) <= 60)
 					_MESSAGE("HITCH: game thread gap %u ms in combat (last NahIDWin action: %s, %u ms ago)", (unsigned)gap, g_lastActLabel, (unsigned)(tn - g_lastActTick));
 			}
-			if(g_cfg.diag && evn && evn->data && (_strnicmp(evn->data, "block", 5) == 0 || _strnicmp(evn->data, "recoil", 6) == 0 || _strnicmp(evn->data, "parry", 5) == 0))
+			if(g_cfg.diag && evn && evn->data && (_strnicmp(evn->data, "block", 5) == 0 || _strnicmp(evn->data, "recoil", 6) == 0 || _strnicmp(evn->data, "parry", 5) == 0 || _strnicmp(evn->data, "bleed", 5) == 0 || _strnicmp(evn->data, "stagger", 7) == 0 || _strnicmp(evn->data, "ragdoll", 7) == 0 || _strnicmp(evn->data, "knock", 5) == 0 || _strnicmp(evn->data, "getup", 5) == 0))
 			{
 				static volatile LONG animLogged = 0;
 				if(animLogged < 300 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14)
 				{
 					InterlockedIncrement(&animLogged);
-					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d tid=%u t=%u)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetCurrentThreadId(), (unsigned)GetTickCount());
+					_MESSAGE("PLAYER-ANIM-EVENT: %s (own=%d main=%d tid=%u t=%u exhausted=%d)", evn->data, (int)g_ownNotify, (GetCurrentThreadId() == g_mainTid) ? 1 : 0, (unsigned)GetCurrentThreadId(), (unsigned)GetTickCount(), (int)g_playerExhausted);
 				}
 				// v0.26.1: how long the block button took to reach the graph (and the release). Values above ~150 ms mean the game thread was late.
 				static volatile LONG lagLogged = 0;
