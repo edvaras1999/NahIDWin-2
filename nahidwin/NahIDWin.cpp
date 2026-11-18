@@ -35,6 +35,7 @@
 #include "skse/GameData.h"
 #include "skse/GameObjects.h"
 #include "skse/GameReferences.h"
+#include "skse/GameExtraData.h"
 #include "skse/GameEvents.h"
 #include "skse/GameMenus.h"
 #include "skse/GameInput.h"
@@ -62,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.27.0 (precomputed tables + stat cache)"
+#define PLUGIN_VERSION_STR	"0.28.0 (light Papyrus, one master switch, Inpa deflect)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -186,7 +187,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache, nativeEquip; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -688,6 +689,7 @@ namespace
 		c.magicDotMs	= IniI("Magic", "DotIntervalMs", 1000);
 		c.magicDotMult	= IniF("Magic", "DotPoiseMult", 0.5f);
 		c.deflectEnabled = IniI("Magic", "DeflectEnabled", 1);
+		if(c.inpaMode) c.deflectEnabled = 0;		// v0.28.0: no Modo 1 o deflect e o do Inpa (zzzSekiero_reflect_Ward), tal como no original
 		c.deflectRequireParry = IniI("Magic", "DeflectRequireParry", 0);
 		c.deflectRecast	= IniI("Magic", "DeflectRecast", 0);
 		c.deflectCostWeapon = IniF("Magic", "DeflectCostWeapon", 0.6f);
@@ -812,6 +814,7 @@ namespace
 		c.perfMode = IniI("Performance", "Mode", 0);
 		c.statCache = IniI("Performance", "StatCache", 1);		// v0.27.0: cache dos stats por ator (1 s)
 		c.tableCache = IniI("Performance", "TableCache", 1);	// v0.27.0: tabela de armas pre-calculada
+		c.nativeEquip = IniI("Performance", "NativeEquipment", 1);	// v0.28.0: a DLL le o equipamento do jogador (o Papyrus deixa de o fazer)
 		c.tickMs = 0;
 		if(c.perfMode >= 1)
 		{
@@ -824,7 +827,7 @@ namespace
 		if(GetFileAttributesExA(g_iniPath, GetFileExInfoStandard, &fad)) g_iniTime = fad.ftLastWriteTime;
 
 		_MESSAGE("BLOCK OWNER: %s (native sound %d, block sound %d)", c.inpaMode ? "Mode 1 = Inpa (scripts decide the parry window)" : "Mode 0 = DLL (own parry window)", c.nativeSound, c.blockSound);
-		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d), stat cache %d, weapon table %d", c.perfMode, c.tickMs, c.diag, c.statCache, c.tableCache);
+		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d), stat cache %d, weapon table %d, native equipment %d", c.perfMode, c.tickMs, c.diag, c.statCache, c.tableCache, c.nativeEquip);
 		_MESSAGE("config: enabled=%d player=%d npcs=%d staggerMode=%d (slot %d, '%s') posture=%d (difficulty %.2f) hud=%d bar=%d diag=%d  [%s]",
 			c.enabled, c.applyPlayer, c.applyNPCs, c.staggerMode, c.nativeSlot, c.nativeEvent, c.postureEnabled, c.postureDifficulty, c.hudEnabled, c.hudBar, c.diag, g_iniPath);
 		ApplyHealthGMST();
@@ -921,6 +924,7 @@ namespace
 	volatile LONG	g_hits = 0, g_applied = 0, g_breaks = 0, g_sent = 0, g_acks = 0, g_faults = 0, g_scriptReady = 0;
 	volatile LONG	g_seq = 0;
 	DWORD			g_latSum = 0, g_latMax = 0, g_latCount = 0;	// protegidos pelo lock
+	DWORD			g_latKSum[8] = {0}, g_latKMax[8] = {0}, g_latKN[8] = {0};	// v0.28.0: o mesmo por tipo de evento (1-3 stagger, 4 bleedout, 5 pesado, 6 parry, 7 exaustao)
 	DWORD			g_sentTick[64];
 	LONG			g_sentSeq[64];
 	DWORD			g_lastSummary = 0;
@@ -1200,6 +1204,81 @@ namespace
 		if(armor >= g_cfg.armorClassMid) return 2;
 		return 1;
 	}
+	// ---- v0.28.0: o equipamento do jogador e lido pela DLL (antes eram cerca de 18 chamadas de Papyrus por ciclo e outras tantas por golpe).
+	// Mesma regra de antes: peso = soma das pecas de corpo, cabeca, maos e pes; pontuacao por peca (corpo .45, cabeca/maos/pes .15, escudo .10; leve .5, pesada 1, roupa 0).
+	volatile DWORD g_wornScanAt = 0;
+	void SetWornState(float weight, float score, bool shield)
+	{
+		const float oldS = g_wornScore, oldW = g_wornWeight;
+		g_wornScore = score; g_wornWeight = weight; g_leftType = shield ? 10 : 0;
+		if(oldS < 0.0f || score > oldS + 0.02f || score < oldS - 0.02f || oldW < 0.0f || weight > oldW + 0.5f || weight < oldW - 0.5f)
+			_MESSAGE("worn armor: weight %.1f, score %.2f, shield %d -> player defense class %d (weight limits %.0f/%.0f, score limits %.2f/%.2f, mode %d)", weight, score, shield ? 1 : 0, ArmorClass(0.0f, true), g_cfg.wornWeightMid, g_cfg.wornWeightHeavy, g_cfg.wornScoreMid, g_cfg.wornScoreHeavy, g_cfg.wornMode);
+	}
+	// Sem objetos com destrutor: pode usar __try.
+	bool ScanPlayerWorn(float * outWeight, float * outScore, bool * outShield)
+	{
+		__try
+		{
+			PlayerCharacter * pl = Engine::Player();
+			if(!pl) return false;
+			Actor * a = (Actor *)pl;
+			bool shield = false;
+			if(a->processManager)
+			{
+				TESForm * lh = a->processManager->equippedObject[ActorProcessManager::kEquippedHand_Left];
+				if(lh && lh->formType == kFormType_Armor) shield = true;
+			}
+			TESObjectARMO * worn[48];
+			int nw = 0;
+			ExtraContainerChanges * cc = NULL;
+			if(a->extraData.HasType(kExtraData_ContainerChanges))
+			{
+				for(BSExtraData * x = a->extraData.m_data; x; x = x->next)
+					if(x->GetType() == kExtraData_ContainerChanges) { cc = (ExtraContainerChanges *)x; break; }
+			}
+			if(cc && cc->data && cc->data->objList)
+			{
+				for(EntryDataList::Iterator it = cc->data->objList->Begin(); !it.End() && nw < 48; ++it)
+				{
+					InventoryEntryData * e = it.Get();
+					if(!e || !e->extendDataList || !e->type || e->type->formType != kFormType_Armor) continue;
+					for(ExtendDataList::Iterator xi = e->extendDataList->Begin(); !xi.End(); ++xi)
+					{
+						BaseExtraList * bx = xi.Get();
+						if(bx && (bx->HasType(kExtraData_Worn) || bx->HasType(kExtraData_WornLeft))) { worn[nw++] = (TESObjectARMO *)e->type; break; }
+					}
+				}
+			}
+			static const UInt32 masks[5] = { 4, 1, 8, 128, 512 };
+			static const float pieceWeight[5] = { 0.45f, 0.15f, 0.15f, 0.15f, 0.10f };
+			float ww = 0.0f, sc = 0.0f;
+			for(int m = 0; m < 5; m++)
+			{
+				TESObjectARMO * f = NULL;
+				for(int i = 0; i < nw; i++) if((worn[i]->bipedObject.data.parts & masks[m]) != 0) { f = worn[i]; break; }
+				if(!f) continue;
+				if(m < 4) ww += f->weight.weight;
+				const UInt32 wc = f->bipedObject.data.weightClass;
+				sc += pieceWeight[m] * ((wc == 1) ? 1.0f : (wc == 0) ? 0.5f : 0.0f);
+			}
+			*outWeight = ww; *outScore = sc; *outShield = shield;
+			return true;
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER)
+		{
+			return false;
+		}
+	}
+	// No maximo uma leitura a cada 400 ms (chamado pelo ciclo do Papyrus e quando o jogador leva um golpe).
+	void RefreshWornFromGame(DWORD now)
+	{
+		if(!g_cfg.nativeEquip) return;
+		if(g_wornScanAt && (DWORD)(now - g_wornScanAt) < 400) return;
+		g_wornScanAt = now;
+		float w = 0.0f, sc = 0.0f; bool sh = false;
+		if(ScanPlayerWorn(&w, &sc, &sh)) SetWornState(w, sc, sh);
+	}
+
 	float ComputeMax(const ActorStats & s)
 	{
 		float m = s.mass * g_cfg.massMult + s.armor * g_cfg.armorFrac + (float)s.level * g_cfg.levelPoise;
@@ -2136,10 +2215,17 @@ namespace
 		Lock();
 		const DWORD latCount = g_latCount, latSum = g_latSum, latMax = g_latMax;
 		const size_t tracked = g_states.size();
+		DWORD kS[8], kM[8], kN[8];
+		for(int k = 0; k < 8; k++) { kS[k] = g_latKSum[k]; kM[k] = g_latKMax[k]; kN[k] = g_latKN[k]; }
 		Unlock();
 		_MESSAGE("SUMMARY: hits=%d applied=%d poiseBreaks=%d postureBreaks=%d light=%d medium=%d parries=%d rages=%d | shield blocked=%d | events sent=%d acked=%d pending=%d | script started=%d | latency avg=%d ms max=%d ms (n=%d) | tracked=%d faults=%d | truehud=%s",
 			(int)g_hits, (int)g_applied, (int)g_breaks, (int)g_postureBreaks, (int)g_lightSent, (int)g_mediumSent, (int)g_parries, (int)g_rages, (int)g_shieldBlocked, (int)g_sent, (int)g_acks, (int)(g_sent - g_acks), (int)g_scriptReady,
 			latCount ? (int)(latSum / latCount) : 0, (int)latMax, (int)latCount, (int)tracked, (int)g_faults, g_hud ? "on" : "off");
+		{
+			char lb[256]; lb[0] = 0;
+			for(int k = 1; k < 8; k++) if(kN[k]) { char c[48]; _snprintf_s(c, sizeof(c), _TRUNCATE, " t%d=%d/%dms(n=%d)", k, (int)(kS[k] / kN[k]), (int)kM[k], (int)kN[k]); strncat_s(lb, sizeof(lb), c, _TRUNCATE); }
+			_MESSAGE("SUMMARY papyrus latency by event type (avg/max):%s", lb[0] ? lb : " none yet");
+		}
 		_MESSAGE("SUMMARY cache: stats hit=%d miss=%d | weapon table hit=%d, outside table=%d, non-weapon cache hit=%d", (int)g_statHits, (int)g_statMiss, (int)g_wtHits, (int)g_wtMiss, (int)g_srcHits);
 		if(g_sent > 0 && g_acks == 0)
 			_MESSAGE("WARNING: stagger events were sent but the Papyrus script never answered. The script is not running or the mod event was not registered (is NahIDWin.esp enabled? is the .pex installed?)");
@@ -2406,21 +2492,6 @@ namespace
 		__except(EXCEPTION_EXECUTE_HANDLER) { return -1.0f; }
 	}
 
-	// Escreve zzzSekiro_control (o Inpa le-o no OnHit do script dele).
-	void InpaSetControl(float v)
-	{
-		InpaControlValue();
-		if(!g_inpaControl) return;
-		__try { *(volatile float *)((UInt8 *)g_inpaControl + 0x20) = v; }
-		__except(EXCEPTION_EXECUTE_HANDLER) { }
-	}
-
-	volatile DWORD g_ctlResetAt = 0;	// quando devolver zzzSekiro_control a 2 (o Papyrus do Inpa pode nao o fazer)
-	void InpaCtlTick(DWORD now)
-	{
-		if(g_ctlResetAt && (LONG)(now - g_ctlResetAt) >= 0) { g_ctlResetAt = 0; InpaSetControl(2.0f); }
-	}
-
 	// Janela do parry em ms: o valor do Inpa (zzzSekiro_parrytimer, segundos) se existir, senao o do .ini.
 	TESGlobal * g_inpaTimer = NULL;
 	bool g_inpaTimerSearched = false;
@@ -2435,6 +2506,58 @@ namespace
 		}
 		if(sec >= 0.05f && sec <= 2.0f) return (DWORD)(sec * 1000.0f);
 		return (DWORD)g_cfg.parryWindowMs;
+	}
+
+	// v0.28.0: interruptor unico. No Modo 1 o mestre e o global zzzSekiro_MCM_turn (o mesmo que o menu mostra e o Inpa original usa, um por save);
+	// o [General] Enabled do .ini continua a valer como "desligar tudo". Sem o Inpa carregado, so o .ini conta.
+	TESGlobal * g_inpaTurn = NULL;
+	bool g_inpaTurnSearched = false;
+	bool InpaTurnOn()
+	{
+		if(!g_dataLoaded) return true;
+		if(!g_inpaTurnSearched)
+		{
+			g_inpaTurnSearched = true;
+			g_inpaTurn = FindGlobalByName("zzzSekiro_MCM_turn");
+			_MESSAGE("master switch: global zzzSekiro_MCM_turn %s", g_inpaTurn ? "found (Mode 1: it decides if the mod works in this save)" : "NOT FOUND (only the ini [General] Enabled counts)");
+		}
+		if(!g_inpaTurn) return true;
+		__try { return *(volatile float *)((UInt8 *)g_inpaTurn + 0x20) > 0.5f; }
+		__except(EXCEPTION_EXECUTE_HANDLER) { return true; }
+	}
+	// v0.28.0: no Modo 1 o interruptor unico e o global zzzSekiro_MCM_turn do save (o mesmo que o menu mostra); o [General] Enabled do INI so manda no Modo 0.
+	bool ModOn() { return g_cfg.inpaMode ? InpaTurnOn() : g_cfg.enabled != 0; }
+
+	// v0.28.0: observacao (so escreve no log, nao altera nada) do global do Inpa: cada mudanca de zzzSekiro_control com o tempo desde o botao,
+	// e um aviso quando fica a 1 depois de a janela do Inpa ter acabado (o temporizador do Papyrus do Inpa atrasou ou nao disparou).
+	void InpaCtlTick(DWORD now)
+	{
+		if(!g_cfg.diag) return;
+		static bool lastOn = true, firstOn = true;
+		const bool on = ModOn();
+		if(firstOn || on != lastOn)
+		{
+			firstOn = false; lastOn = on;
+			_MESSAGE("MOD SWITCH: effective state = %s (ini Enabled=%d, Mode %d%s)", on ? "ON" : "OFF", (int)g_cfg.enabled, (int)g_cfg.inpaMode, g_cfg.inpaMode ? ", master = zzzSekiro_MCM_turn of this save" : "");
+		}
+		if(!g_cfg.inpaMode) return;
+		static float lastCtl = -99.0f;
+		static bool warned = false;
+		static LONG logged = 0;
+		const float c = InpaControlValue();
+		if(c < 0.0f) return;
+		const DWORD sincePress = g_blockDownTick ? (DWORD)(now - g_blockDownTick) : 0;
+		if(c != lastCtl)
+		{
+			if(logged < 200) { logged++; _MESSAGE("INPA-CTL: zzzSekiro_control %.0f -> %.0f (%u ms after the block press, held=%d, Inpa window %u ms)", lastCtl, c, (unsigned)sincePress, (int)g_blockHeld, (unsigned)InpaParryWindowMs()); }
+			lastCtl = c;
+			warned = false;
+		}
+		else if(c > 0.5f && c < 1.5f && !warned && g_blockDownTick && sincePress > InpaParryWindowMs() + 400)
+		{
+			warned = true;
+			if(logged < 200) { logged++; _MESSAGE("INPA-CTL: control is still 1 %u ms after the block press (Inpa window %u ms, held=%d): Inpa's own timer is late or did not fire", (unsigned)sincePress, (unsigned)InpaParryWindowMs(), (int)g_blockHeld); }
+		}
 	}
 
 	// O poise/postura deste ator esta em exaustao (leva mais dano)?
@@ -2744,7 +2867,7 @@ namespace
 
 	void OnHit(TESHitEvent * evn)
 	{
-		if(!evn || !g_cfg.enabled) return;
+		if(!evn || !ModOn()) return;
 		const DWORD now = GetTickCount();
 		MaybeReloadConfig(now);
 		if(g_cfg.diag) WriteSummary(now, false);
@@ -2897,6 +3020,7 @@ namespace
 			if(parry) _MESSAGE("PERILOUS attack parried: %08X takes extra posture", h.attackerId);
 		}
 		const int atkCls = AttackClass(h);
+		if(h.victim.isPlayer) RefreshWornFromGame(now);	// v0.28.0: a classe de defesa do jogador nao depende do Papyrus
 		const int defCls = DefenseClass(h.victim, blocked);
 		// Resistencia: um ataque NORMAL de uma classe acima conta como da mesma classe; ataques pesados (golpe forte, bash, gigantes) nao tem esse desconto.
 		const bool heavyAtk = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) != 0 || atkCls == 4;
@@ -3335,7 +3459,7 @@ namespace
 	// Essencial so enquanto ha vidas (e durante o bleedout da vida gasta). Reenvia de 10 em 10 s (o evento pode perder-se logo apos o load).
 	void SyncEssential()
 	{
-		if(!g_cfg.enabled || !g_cfg.livesEnabled || !g_cfg.livesEssential) return;
+		if(!ModOn() || !g_cfg.livesEnabled || !g_cfg.livesEssential) return;
 		Actor * pl = (Actor *)Engine::Player();
 		if(!pl) return;
 		const DWORD now = GetTickCount();
@@ -3364,7 +3488,7 @@ namespace
 	volatile LONG g_bossPending = 0;	// formID do boss cuja vida extra acabou de ser gasta
 	float AdjustHealthDamage(Actor * self, Actor * attacker, float amount)
 	{
-		if(!(amount < 0.0f) || !(amount > -1.0e9f) || !g_cfg.enabled || g_rageCostBusy) return amount;
+		if(!(amount < 0.0f) || !(amount > -1.0e9f) || !ModOn() || g_rageCostBusy) return amount;
 		__try
 		{
 			if(!self || self->formType != kFormType_Character) return amount;
@@ -3432,7 +3556,7 @@ namespace
 				Unlock();
 				result = amount * mult;
 			}
-			if(!isPlayer && result < 0.0f && g_cfg.enabled)
+			if(!isPlayer && result < 0.0f && ModOn())
 			{
 				bool inv = false, lose = false;
 				Lock();
@@ -3844,7 +3968,7 @@ namespace
 				}
 			}
 			const bool brokenNow = g_playerBrokenUntil && (LONG)(GetTickCount() - g_playerBrokenUntil) < 0;
-			if(!g_ownNotify && g_cfg.enabled && (brokenNow || (g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0)) && evn && IsExhaustBlockedName(evn->data, brokenNow))
+			if(!g_ownNotify && ModOn() && (brokenNow || (g_exhaustBlockUntil && (LONG)(GetTickCount() - g_exhaustBlockUntil) < 0)) && evn && IsExhaustBlockedName(evn->data, brokenNow))
 			{
 				const UInt32 pid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
 				if(pid == 0x14)
@@ -3854,7 +3978,7 @@ namespace
 					InterlockedIncrement(&g_shieldBlocked); return true;
 				}
 			}
-			if(g_ownNotify || !g_cfg.rageStaggerShield || !g_cfg.enabled) return false;
+			if(g_ownNotify || !g_cfg.rageStaggerShield || !ModOn()) return false;
 			if(g_cfg.npcGuardRules && evn && evn->data && _stricmp(evn->data, "blockStart") == 0)
 			{
 				const UInt32 gid = *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C);
@@ -3978,7 +4102,7 @@ namespace
 	// ------------------------------------------------------------------ furia do jogador (tecla)
 	void TryRagePlayer()
 	{
-		if(!g_cfg.enabled || !g_cfg.rageEnabled) return;
+		if(!ModOn() || !g_cfg.rageEnabled) return;
 		PlayerCharacter * p = Engine::Player();
 		if(!p) return;
 		ActorStats s;
@@ -4391,7 +4515,7 @@ namespace
 
 	void TrySupremePlayer()
 	{
-		if(!g_cfg.enabled || !g_cfg.rageEnabled || !g_cfg.supEnabled) return;
+		if(!ModOn() || !g_cfg.rageEnabled || !g_cfg.supEnabled) return;
 		PlayerCharacter * p = Engine::Player();
 		if(!p) return;
 		ActorStats s;
@@ -4541,15 +4665,18 @@ namespace
 	InputSink g_inputSink;
 
 	// ------------------------------------------------------------------ funcoes nativas para o Papyrus
-	void N_SetLeftType(StaticFunctionTag *, SInt32 t) { g_leftType = t; }
+	// Compatibilidade com o Papyrus antigo: com NativeEquipment=1 o equipamento e lido pela DLL e estas tres chamadas nao fazem nada.
+	void N_SetLeftType(StaticFunctionTag *, SInt32 t) { if(!g_cfg.nativeEquip) g_leftType = t; }
 	void N_SetWornScore(StaticFunctionTag *, float sc)
 	{
+		if(g_cfg.nativeEquip) return;
 		const float old = g_wornScore;
 		g_wornScore = sc;
 		if(old < 0.0f || sc > old + 0.02f || sc < old - 0.02f) _MESSAGE("worn armor score (per piece) = %.2f -> player defense class %d (mid %.2f, heavy %.2f, mode %d)", sc, ArmorClass(0.0f, true), g_cfg.wornScoreMid, g_cfg.wornScoreHeavy, g_cfg.wornMode);
 	}
 	void N_SetWornWeight(StaticFunctionTag *, float w)
 	{
+		if(g_cfg.nativeEquip) return;
 		const float old = g_wornWeight;
 		g_wornWeight = w;
 		if(old < 0.0f || w > old + 0.5f || w < old - 0.5f) _MESSAGE("worn armor weight (body+head+hands+feet) = %.1f -> player defense class %d (mid %.0f, heavy %.0f)", w, ArmorClass(0.0f, true), g_cfg.wornWeightMid, g_cfg.wornWeightHeavy);
@@ -4579,6 +4706,7 @@ namespace
 			const DWORD lat = now - g_sentTick[seq & 63];
 			g_latSum += lat; g_latCount++;
 			if(lat > g_latMax) g_latMax = lat;
+			{ const int k = packed & 7; g_latKSum[k] += lat; g_latKN[k]++; if(lat > g_latKMax[k]) g_latKMax[k] = lat; }
 			if(g_cfg.diag && g_cfg.logHitsMax > 0) _MESSAGE("papyrus: stagger #%d answered after %d ms (tier %d)", (int)seq, (int)lat, (int)(packed & 7));
 		}
 		Unlock();
@@ -4605,7 +4733,7 @@ namespace
 	float N_GetSwingCost(StaticFunctionTag *, SInt32 mode, SInt32 rightType, float weight)
 	{
 		g_lastSwingTick = GetTickCount();
-		if(!g_cfg.stamEnabled || g_cfg.swingCostPlayer <= 0.0f) return 0.0f;
+		if(!ModOn() || !g_cfg.stamEnabled || g_cfg.swingCostPlayer <= 0.0f) return 0.0f;
 		if(g_cfg.rageEnabled && g_cfg.rageZeroStamina && PlayerRaging()) return 0.0f;	// furia: golpes gratis
 		const DWORD now = GetTickCount();
 		if(mode == 0 && g_powerIntent && now - g_powerIntent < 1500) { mode = 1; g_powerIntent = 0; }	// golpe forte visto pelo gancho
@@ -4650,8 +4778,9 @@ namespace
 	volatile DWORD g_lastExhSwing = 0;	// ultimo golpe dado exausto (v0.25.5)
 	float N_GetCombatRegen(StaticFunctionTag *, bool inCombat)
 	{
-		if(!g_cfg.stamEnabled) return -1.0f;
+		if(!ModOn() || !g_cfg.stamEnabled) return -1.0f;
 		const DWORD now = GetTickCount();
+		RefreshWornFromGame(now);		// v0.28.0: o equipamento e lido aqui (uma vez por ciclo), nao pelo Papyrus
 		if(g_exhaustBlockUntil && (LONG)(now - g_exhaustBlockUntil) < 0) return 0.0f;
 		float base = 100.0f;
 		if(g_cfg.classRegen)
@@ -4692,6 +4821,7 @@ namespace
 		if(g_blockHeld) r *= g_cfg.regenBlockFactor;
 		return r;
 	}
+	bool N_ModActive(StaticFunctionTag *) { return ModOn(); }
 	float N_GetExhaustMax(StaticFunctionTag *) { return g_cfg.exhaustMaxSeconds; }
 	float N_GetExhaustTarget(StaticFunctionTag *) { return g_cfg.exhaustTargetPct; }
 	void N_ExhaustEnded(StaticFunctionTag *)
@@ -4717,7 +4847,7 @@ namespace
 	// O Papyrus viu a estamina do jogador a zero depois de pagar um golpe. true = pode entrar em exaustao agora.
 	bool N_TryExhaust(StaticFunctionTag *)
 	{
-		if(!g_cfg.enabled || !g_cfg.exhaustEnabled) return false;
+		if(!ModOn() || !g_cfg.exhaustEnabled) return false;
 		PlayerCharacter * p = Engine::Player();
 		if(!p) return false;
 		ActorStats s;
@@ -4743,7 +4873,7 @@ namespace
 	// Exhausted player swings: each swing costs poise (light/heavy percent of max); at 0 the player stumbles back.
 	void N_SelfPoise(StaticFunctionTag *, bool heavy)
 	{
-		if(!g_cfg.enabled || !g_playerExhausted) return;
+		if(!ModOn() || !g_playerExhausted) return;
 		g_lastExhSwing = GetTickCount();
 		const float pct = heavy ? g_cfg.selfPoiseHeavy : g_cfg.selfPoiseLight;
 		if(!(pct > 0.0f)) return;
@@ -4879,6 +5009,7 @@ namespace
 	{
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetBleedSeconds", "NahIDWinNative", N_GetBleedSeconds, registry));
 		registry->RegisterFunction(new NativeFunction3 <StaticFunctionTag, float, SInt32, SInt32, float>("GetSwingCost", "NahIDWinNative", N_GetSwingCost, registry));
+		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("ModActive", "NahIDWinNative", N_ModActive, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetRegenPercent", "NahIDWinNative", N_GetRegenPercent, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, bool>("GetCombatRegen", "NahIDWinNative", N_GetCombatRegen, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));

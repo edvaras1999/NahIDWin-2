@@ -134,6 +134,14 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
 - Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
 
+## v0.28.0 - lighter Papyrus, one master switch, Inpa's own deflect
+
+- **One master switch.** With Inpa (Mode 1) the on/off switch is the global `zzzSekiro_MCM_turn` of the save, the same one the menu shows. A new save with the menu showing "off" now really does nothing: no stamina costs, no regen changes, no poise/posture. `[General] Enabled` only applies in Mode 0. Turning the mod off in the menu restores the game settings the mod had zeroed.
+- **Lighter Papyrus.** `[Performance] NativeEquipment=1`: the DLL reads the worn armor itself; the 0.5 s loop and each swing no longer do ~15 engine calls. The log summary now shows Papyrus latency per event type.
+- **Inpa's deflect.** In Mode 1 the mod's own magic deflect is off; Inpa's original ward deflect runs untouched.
+- **Diagnostics.** The log shows `MOD SWITCH` and `INPA-CTL` lines (changes of `zzzSekiro_control`, with a warning if it stays at 1 after the window).
+- The `.psc` files changed: recompile the `.pex`.
+
 ## v0.27.0 - precomputed tables (stage A)
 - Weapon table: poise base, stagger factor and attack class of every weapon are computed once when the game data loads (and again only when the .ini changes). A hit does one binary search instead of a form lookup plus arithmetic. Weapons created in game (e.g. enchanted) use the same function on the spot, so results never differ.
 - Stat cache: mass, unarmed damage, max health, armor, level and boss flag of each actor are read once and reused for 1 s; current health and life state are always read live.

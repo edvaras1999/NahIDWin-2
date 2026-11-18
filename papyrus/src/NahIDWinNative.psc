@@ -28,6 +28,8 @@ float Function GetKnockbackForce() global native
 float Function GetRegenPercent() global native
 ; Regeneracao com combate (exausto 0, a bater 0, a bloquear mais lenta, em combate mais rapida). -1 = nao mexer.
 float Function GetCombatRegen(bool inCombat) global native
+; v0.28.0: estado real do mod (interruptor unico, o mesmo do menu). Falso = o mod nao mexe em nada.
+bool Function ModActive() global native
 ; Tipo do item da mao esquerda do jogador (10 = escudo): o deflect de magia gasta menos magicka e devolve mais com escudo.
 Function SetLeftType(int t) global native
 ; Peso das pecas de armadura vestidas pelo jogador (define a classe de defesa 1-3).

@@ -1,0 +1,18 @@
+NahIDWin 0.28.0 - Papyrus mais leve, interruptor unico, deflect original do Inpa - so ficheiros alterados
+
+Substituir no repositorio (mantendo as pastas):
+  nahidwin/NahIDWin.cpp
+  papyrus/src/NahIDWinBridge.psc
+  papyrus/src/NahIDWinNative.psc
+  papyrus/src/NahIDWinMCM.psc
+  dist/Data/SKSE/Plugins/NahIDWin.ini
+  README.md
+Depois compilar (Actions): DLL e os .pex (os .psc mudaram, entao os .pex tem de ser recompilados e instalados juntos com a DLL).
+
+O que muda:
+1. Interruptor unico: no Modo 1 manda o global do save (o que o menu mostra). Save novo com o menu "desativado" = mod realmente parado. Ao desligar no menu, os Game Settings voltam ao original.
+2. Papyrus mais leve: a DLL le a armadura equipada; o ciclo de 0.5 s e cada golpe fazem muito menos chamadas ao jogo. INI [Performance] NativeEquipment=1 (0 = forma antiga).
+3. Deflect: no Modo 1 o nosso deflect fica desligado e corre o do Inpa original.
+4. Observacao: o log mostra "MOD SWITCH" e "INPA-CTL" (mudancas do controle do Inpa). Sem ligar o log do Papyrus.
+
+Como testar: save novo com o mod desativado no menu (nao deve haver custos de estamina nem poise); depois ativar. Testar parry/bloqueio normal e deflect. Enviar o NahIDWin.log (procurar INPA-CTL e "SUMMARY papyrus latency").

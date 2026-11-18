@@ -104,7 +104,7 @@ EndFunction
 
 ; v0.23: o mod passa a cobrar os custos de estamina (golpe, bash, bloqueio); os do jogo ficam a zero (os Game Settings nao ficam gravados no save)
 Function ZeroVanillaCosts()
-	if NahIDWinNative.IniGetF("General", "Enabled", 1.0) < 0.5 || NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5 || NahIDWinNative.IniGetF("Stamina", "ZeroVanillaCosts", 1.0) < 0.5
+	if !NahIDWinNative.ModActive() || NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5 || NahIDWinNative.IniGetF("Stamina", "ZeroVanillaCosts", 1.0) < 0.5
 		return
 	endif
 	ZeroGmst("fStaminaAttackWeaponBase")
@@ -116,10 +116,69 @@ Function ZeroVanillaCosts()
 	ZeroGmst("fStaminaBlockMult")
 EndFunction
 
+; v0.28.0: os valores originais ficam guardados para os repor se o mod for desligado no menu (nao ha reinicio do jogo).
+float[] gmstOrig
+string[] gmstName
+bool gmstZeroed = false
+
 Function ZeroGmst(string gmstName)
 	float before = Game.GetGameSettingFloat(gmstName)
+	if before != 0.0
+		RememberGmst(gmstName, before)
+	endif
 	Game.SetGameSettingFloat(gmstName, 0.0)
+	gmstZeroed = true
 	NahIDWinNative.Log("GMST " + gmstName + ": " + before + " -> " + Game.GetGameSettingFloat(gmstName))
+EndFunction
+
+Function RememberGmst(string n, float v)
+	if !gmstOrig
+		gmstOrig = new float[16]
+		gmstName = new string[16]
+	endif
+	int i = 0
+	while i < 16
+		if gmstName[i] == n
+			return
+		endif
+		if gmstName[i] == ""
+			gmstName[i] = n
+			gmstOrig[i] = v
+			return
+		endif
+		i += 1
+	endwhile
+EndFunction
+
+Function RestoreVanillaCosts()
+	if !gmstOrig
+		return
+	endif
+	int i = 0
+	while i < 16 && gmstName[i] != ""
+		Game.SetGameSettingFloat(gmstName[i], gmstOrig[i])
+		NahIDWinNative.Log("GMST " + gmstName[i] + " restored to " + gmstOrig[i])
+		i += 1
+	endwhile
+	gmstZeroed = false
+EndFunction
+
+; Interruptor unico: se o estado efectivo do mod mudar (menu), aplica ou repoe os Game Settings e a regeneracao de estamina.
+bool modWas = true
+Function CheckModSwitch()
+	bool on = NahIDWinNative.ModActive()
+	if on == modWas
+		return
+	endif
+	modWas = on
+	NahIDWinNative.Log("bridge: mod switch -> " + on)
+	if on
+		ZeroVanillaCosts()
+	else
+		RestoreVanillaCosts()
+		Game.GetPlayer().SetActorValue("StaminaRateMult", 100.0)
+		lastRegen = -1.0
+	endif
 EndFunction
 
 Function RegisterInputs()
@@ -188,6 +247,12 @@ Event OnUpdate()
 		RegisterForSingleUpdate(loopIdle)
 		return
 	endif
+	CheckModSwitch()
+	if !modWas
+		; mod desligado no menu: o ciclo so vigia o interruptor
+		RegisterForSingleUpdate(loopIdle)
+		return
+	endif
 	CheckExhaust()
 	ApplyRegen()
 	ControlsWatchdog()
@@ -202,6 +267,7 @@ EndEvent
 ; ---------------- v0.26: seguranca (vigia de controles), reparo e desempenho ----------------
 bool ctrlHeld = false
 bool bridgeMin = false
+bool legacyEquip = false
 float loopCombat = 0.5
 float loopIdle = 2.5
 float wdNext = 0.0
@@ -214,6 +280,7 @@ Function RefreshPerf()
 	float pm = NahIDWinNative.IniGetF("Performance", "Mode", 0.0)
 	; the combat loop is NEVER slowed (stamina and exhaustion depend on it); only the idle loop is slower in the Light/Minimal modes
 	loopCombat = 0.5
+	legacyEquip = NahIDWinNative.IniGetF("Performance", "NativeEquipment", 1.0) < 0.5
 	if pm >= 1.5
 		loopIdle = 5.0
 	elseif pm >= 0.5
@@ -625,6 +692,16 @@ bool inCombatNow = false
 Function ApplyRegen()
 	Actor pl = Game.GetPlayer()
 	inCombatNow = pl.IsInCombat()
+	if !legacyEquip
+		; v0.28.0: a DLL le o equipamento (peso, classe de defesa, escudo) sozinha; aqui so ha 2 chamadas ao jogo
+		float rr = NahIDWinNative.GetCombatRegen(inCombatNow)
+		if rr >= 0.0 && Math.Abs(rr - lastRegen) > 1.0
+			lastRegen = rr
+			pl.SetActorValue("StaminaRateMult", rr)
+		endif
+		return
+	endif
+	; NativeEquipment=0: caminho antigo, o Papyrus le o equipamento
 	NahIDWinNative.SetLeftType(pl.GetEquippedItemType(0))
 	float ww = 0.0
 	int slotMasks = 0
@@ -658,7 +735,7 @@ EndFunction
 
 ; Cada golpe do jogador gasta estamina (mesmo sem acertar). O custo depende da arma, do tipo de golpe e da armadura.
 Event OnAnimationEvent(ObjectReference akSource, string asEventName)
-	if bridgeMin
+	if bridgeMin || !modWas
 		return
 	endif
 	Actor pl = Game.GetPlayer()

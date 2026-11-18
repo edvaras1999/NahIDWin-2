@@ -190,10 +190,8 @@ bool Function ModOn()
 		; the DLL owns block/parry: Inpa's master switch is off on purpose, so only our own switch counts
 		return NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
 	endif
-	if zzzSekiro_MCM_turn
-		return zzzSekiro_MCM_turn.GetValue() > 0.5
-	endif
-	return NahIDWinNative.IniGetF("General", "Enabled", 1.0) > 0.5
+	; v0.28.0: o menu e a DLL leem a mesma coisa (o global do save): o que o menu mostra e o que o mod faz
+	return NahIDWinNative.ModActive()
 EndFunction
 
 GlobalVariable Function GetG(int gid)
@@ -466,7 +464,6 @@ Function SetModOn(bool a_on)
 	endif
 	if a_on
 		zzzSekiro_MCM_turn.SetValue(1.0)
-		NahIDWinNative.IniSetF("General", "Enabled", 1.0)
 		; sem "regenerar estamina a bloquear" e sem ressurreicao (removidos do mod)
 		zzzSekiro_postureregen.SetValue(0.0)
 		zzzSekiro_resurrection.SetValue(0.0)
@@ -482,7 +479,6 @@ Function SetModOn(bool a_on)
 		Refresh(zzzSekiro_player_parry3_spell)
 	else
 		zzzSekiro_MCM_turn.SetValue(0.0)
-		NahIDWinNative.IniSetF("General", "Enabled", 0.0)
 		StripInpaSpells()
 	endif
 EndFunction
