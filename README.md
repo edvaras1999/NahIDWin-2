@@ -134,6 +134,20 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
 - Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
 
+## v0.29.0 - giants by difficulty, regen by armor class, swing cost from the animation, faster execution
+
+- **Swing cost follows the animation.** `[Performance] NativeSwing=2` (default): the real swing event (`weaponSwing`, `weaponLeftSwing`, `bashStart`) reaches Papyrus, which only calls the DLL once; the DLL reads the weapon, charges the stamina and decides exhaustion. Fast clicking no longer charges more than the swings that happen. `1` = charge on the click (0.28 behaviour), `0` = old Papyrus way.
+- **Giants/huge creatures by difficulty** (`[BigCreatures]`, set by the menu presets): max poise/posture x1.5 / 1.75 / 2.0, regeneration speed x0.40 / 0.55 / 0.75, attack class normal 2 / 2 / 3 and power 3 / 3 / 4 (before: always class 4).
+- **Combat stamina regeneration by armor class** (`[Stamina] CombatRegenClass1..3`): Normal 190 / 175 / 160 %, Easy +15, Hard -15. Replaces CombatRegenPercent and the class penalty while in combat.
+- **Execution** is requested the same way but Papyrus no longer waits up to 1.2 s for Inpa's own (which could make ours arrive when the target had already stood up). `[Execution] Range` default is 150.
+- Diagnostics: `killmove*` / `pairedStart` animation events of the player are logged, to study the vanilla execution.
+
+## v0.28.2 - diagnostics for the exhausted-hit kneel; Inpa stamina rules off for NPCs too
+
+- The log version text now says 0.28.2 (0.28.1 still said 0.28.0).
+- With `[Performance] diag`, the log also shows the player's `bleed*`, `stagger*`, `ragdoll*`, `knock*`, `getup*` animation events with `exhausted=0/1`, to find out what makes the player kneel when hit with no stamina.
+- Private Inpa scripts (not in this repository): the Inpa rule "stamina < 10 on a hit = posture break" is now also off for NPCs and allies (`npc_main`, `npcally_main`, `player_parry2`), as it already was for the player.
+
 ## v0.28.0 - lighter Papyrus, one master switch, Inpa's own deflect
 
 - **One master switch.** With Inpa (Mode 1) the on/off switch is the global `zzzSekiro_MCM_turn` of the save, the same one the menu shows. A new save with the menu showing "off" now really does nothing: no stamina costs, no regen changes, no poise/posture. `[General] Enabled` only applies in Mode 0. Turning the mod off in the menu restores the game settings the mod had zeroed.

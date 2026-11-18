@@ -183,9 +183,22 @@ EndFunction
 Function RegisterInputs()
 	Actor pl = Game.GetPlayer()
 	if pl
-		nativeSwing = NahIDWinNative.IniGetF("Performance", "NativeSwing", 1.0) > 0.5
-		if nativeSwing
-			; v0.28.0 (Etapa C): a DLL cobra os golpes; saves antigos tinham estes registos, retiram-se
+		swingMode = NahIDWinNative.IniGetF("Performance", "NativeSwing", 2.0) as int
+		if swingMode == 2
+			; v0.29.0: o golpe e cobrado pela DLL quando a animacao o faz de verdade: o Papyrus so recebe o evento e avisa a DLL (uma chamada)
+			RegisterForAnimationEvent(pl, "weaponSwing")
+			RegisterForAnimationEvent(pl, "weaponLeftSwing")
+			RegisterForAnimationEvent(pl, "bashStart")
+			RegisterForAnimationEvent(pl, "bashPowerStart")
+			UnregisterForAnimationEvent(pl, "attackPowerStartInPlace")
+			UnregisterForAnimationEvent(pl, "attackPowerStartForward")
+			UnregisterForAnimationEvent(pl, "attackPowerStartBackward")
+			UnregisterForAnimationEvent(pl, "attackPowerStartLeft")
+			UnregisterForAnimationEvent(pl, "attackPowerStartRight")
+			UnregisterForAnimationEvent(pl, "attackPowerStartDualWield")
+			UnregisterForAnimationEvent(pl, "attackPowerStartForwardLeftHand")
+		elseif swingMode == 1
+			; NativeSwing=1: a DLL cobra no clique (v0.28); saves antigos tinham estes registos, retiram-se
 			UnregisterForAnimationEvent(pl, "weaponSwing")
 			UnregisterForAnimationEvent(pl, "weaponLeftSwing")
 			UnregisterForAnimationEvent(pl, "bashStart")
@@ -283,7 +296,7 @@ EndEvent
 bool ctrlHeld = false
 bool bridgeMin = false
 bool legacyEquip = false
-bool nativeSwing = true
+int swingMode = 2
 float loopCombat = 0.5
 float loopIdle = 2.5
 float wdNext = 0.0
@@ -297,7 +310,7 @@ Function RefreshPerf()
 	; the combat loop is NEVER slowed (stamina and exhaustion depend on it); only the idle loop is slower in the Light/Minimal modes
 	loopCombat = 0.5
 	legacyEquip = NahIDWinNative.IniGetF("Performance", "NativeEquipment", 1.0) < 0.5
-	nativeSwing = NahIDWinNative.IniGetF("Performance", "NativeSwing", 1.0) > 0.5
+	swingMode = NahIDWinNative.IniGetF("Performance", "NativeSwing", 2.0) as int
 	if pm >= 1.5
 		loopIdle = 5.0
 	elseif pm >= 0.5
@@ -452,8 +465,9 @@ Function OnNahExecute(string eventName, string strArg, float numArg, Form sender
 	bool inpaRunning = false
 	if method == 0
 		int w = 0
-		while w < 6 && !inpaRunning
-			Utility.Wait(0.2)
+		; v0.29.0: antes esperava ate 1.2 s (6 esperas) pela execucao do Inpa e, com o Papyrus ocupado, a nossa chegava 2-3 s depois (o alvo ja se levantara)
+		while w < 2 && !inpaRunning
+			Utility.Wait(0.15)
 			w += 1
 			if v.IsDead() || v.IsInKillMove() || pl.IsInKillMove()
 				inpaRunning = true
@@ -774,8 +788,18 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 		endif
 		return
 	endif
-	if nativeSwing
-		; Etapa C: os golpes sao cobrados pela DLL (nenhuma chamada ao jogo aqui)
+	if swingMode == 1
+		; NativeSwing=1: os golpes sao cobrados pela DLL no clique (nenhuma chamada ao jogo aqui)
+		return
+	elseif swingMode == 2
+		; NativeSwing=2: so avisa a DLL, que le a arma e cobra (uma unica chamada, sem ler nada do jogo)
+		if asEventName == "weaponSwing"
+			NahIDWinNative.SwingEvent(0)
+		elseif asEventName == "weaponLeftSwing"
+			NahIDWinNative.SwingEvent(1)
+		elseif asEventName == "bashStart" || asEventName == "bashPowerStart"
+			NahIDWinNative.SwingEvent(2)
+		endif
 		return
 	endif
 	int mode = 0

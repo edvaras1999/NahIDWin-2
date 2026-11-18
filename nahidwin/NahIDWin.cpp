@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.28.2 (light Papyrus, one master switch, native swing cost, Inpa stamina rules off for NPCs too)"
+#define PLUGIN_VERSION_STR	"0.29.0 (giants by difficulty, regen by armor class, swing cost from the animation event, faster execution)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -187,7 +187,11 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache, nativeEquip, nativeSwing; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache, nativeEquip, nativeSwing;
+		int bigAtkNormal, bigAtkPower;			// v0.29.0: classe do ataque de gigantes
+		float bigPoiseRegen, bigPostureRegen;	// v0.29.0: velocidade de regeneracao do poise/postura dos grandes
+		float classRegenCombat[4];				// v0.29.0: regeneracao em combate (%) por classe de armadura 1-3 (0 = usar CombatRegenPercent)
+		int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -496,6 +500,10 @@ namespace
 		c.poiseRegenLow	= IniF("Stamina", "PoiseLowRegenMult", 0.5f);
 		c.classRegen	= IniI("Stamina", "ClassRegen", 1);
 		c.classRegenPenalty = IniF("Stamina", "ClassRegenPenalty", 0.10f);
+		c.classRegenCombat[1] = IniF("Stamina", "CombatRegenClass1", 190.0f);	// v0.29.0: tabela por classe de armadura (em combate)
+		c.classRegenCombat[2] = IniF("Stamina", "CombatRegenClass2", 175.0f);
+		c.classRegenCombat[3] = IniF("Stamina", "CombatRegenClass3", 160.0f);
+		c.classRegenCombat[0] = 0.0f;
 		c.exhaustMaxSeconds = IniF("Exhaustion", "MaxSeconds", 8.0f);
 		c.exhaustTargetPct = IniF("Exhaustion", "TargetPercent", 40.0f);
 		c.exhaustRegenFactor = IniF("Exhaustion", "RegenFactor", 0.6f);
@@ -686,6 +694,16 @@ namespace
 		c.bossEnabled	= IniI("Bosses", "Enabled", 1);
 		c.bossLevelMargin	= IniI("Bosses", "LevelMargin", 7);
 		c.bigRageMult	= IniF("BigCreatures", "RageDurationMult", 1.5f);
+		c.bigAtkNormal	= IniI("BigCreatures", "AttackClassNormal", 2);
+		c.bigAtkPower	= IniI("BigCreatures", "AttackClassPower", 3);
+		c.bigPoiseRegen	= IniF("BigCreatures", "PoiseRegenMult", 0.55f);
+		c.bigPostureRegen = IniF("BigCreatures", "PostureRegenMult", 0.55f);
+		if(c.bigAtkNormal < 1) c.bigAtkNormal = 1;
+		if(c.bigAtkNormal > 4) c.bigAtkNormal = 4;
+		if(c.bigAtkPower < 1) c.bigAtkPower = 1;
+		if(c.bigAtkPower > 4) c.bigAtkPower = 4;
+		if(c.bigPoiseRegen < 0.05f) c.bigPoiseRegen = 0.05f;
+		if(c.bigPostureRegen < 0.05f) c.bigPostureRegen = 0.05f;
 		c.magicDotMs	= IniI("Magic", "DotIntervalMs", 1000);
 		c.magicDotMult	= IniF("Magic", "DotPoiseMult", 0.5f);
 		c.deflectEnabled = IniI("Magic", "DeflectEnabled", 1);
@@ -814,7 +832,7 @@ namespace
 		c.perfMode = IniI("Performance", "Mode", 0);
 		c.statCache = IniI("Performance", "StatCache", 1);		// v0.27.0: cache dos stats por ator (1 s)
 		c.tableCache = IniI("Performance", "TableCache", 1);	// v0.27.0: tabela de armas pre-calculada
-		c.nativeSwing = IniI("Performance", "NativeSwing", 1);	// v0.28.0 (Etapa C): a DLL cobra o golpe do jogador (o Papyrus deixa de o fazer)
+		c.nativeSwing = IniI("Performance", "NativeSwing", 2);	// v0.28.0 (Etapa C): a DLL cobra o golpe do jogador (o Papyrus deixa de o fazer)
 		c.nativeEquip = IniI("Performance", "NativeEquipment", 1);	// v0.28.0: a DLL le o equipamento do jogador (o Papyrus deixa de o fazer)
 		c.tickMs = 0;
 		if(c.perfMode >= 1)
@@ -874,6 +892,7 @@ namespace
 		int		bossUsed;		// boss: a vida extra ja foi gasta
 		DWORD	lastExec;		// ultima execucao pedida
 		DWORD	gbUntil;		// guarda quebrada ate aqui (dano extra)
+		bool	big;			// v0.29.0: criatura grande (regeneracao do poise/postura mais lenta)
 	};
 	typedef std::map<UInt32, PoiseState> StateMap;
 
@@ -952,7 +971,7 @@ namespace
 			if(from < st.lastTick) from = st.lastTick;
 			if(now > from)
 			{
-				st.cur += (st.max / g_cfg.regenSeconds) * ((float)(now - from) / 1000.0f);
+				st.cur += (st.max / g_cfg.regenSeconds) * (st.big ? g_cfg.bigPoiseRegen : 1.0f) * ((float)(now - from) / 1000.0f);
 				if(st.cur > st.max) st.cur = st.max;
 			}
 		}
@@ -968,7 +987,7 @@ namespace
 			if(from < st.pTick) from = st.pTick;
 			if(now > from)
 			{
-				st.pCur -= (st.pMax / g_cfg.postureRegenSeconds) * ((float)(now - from) / 1000.0f);
+				st.pCur -= (st.pMax / g_cfg.postureRegenSeconds) * (st.big ? g_cfg.bigPostureRegen : 1.0f) * ((float)(now - from) / 1000.0f);
 				if(st.pCur < 0.0f) st.pCur = 0.0f;
 			}
 		}
@@ -976,7 +995,7 @@ namespace
 	}
 
 	// Chamar com o lock tomado.
-	PoiseState & FindOrCreate(UInt32 id, float maxPoise, float maxPosture, DWORD now)
+	PoiseState & FindOrCreate(UInt32 id, float maxPoise, float maxPosture, DWORD now, bool big = false)
 	{
 		StateMap::iterator it = g_states.find(id);
 		if(it == g_states.end())
@@ -992,7 +1011,7 @@ namespace
 			PoiseState s;
 			s.isPl = (id == 0x14);
 			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.staggerUntil = 0;
-			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0; s.gbUntil = 0;
+			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0; s.gbUntil = 0; s.big = big;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
 		else
@@ -1001,6 +1020,7 @@ namespace
 			if(it->second.cur > maxPoise) it->second.cur = maxPoise;
 			it->second.pMax = maxPosture;
 			if(it->second.pCur > maxPosture) it->second.pCur = maxPosture;
+			it->second.big = big;
 		}
 		return it->second;
 	}
@@ -1952,7 +1972,7 @@ namespace
 		bool raging = false;
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(s.id, mx, mp, now);
+			PoiseState & st = FindOrCreate(s.id, mx, mp, now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 			Regen(st, now);
 			RegenPosture(st, now);
 			float poiseFrac = (st.max > 0.0f) ? (st.cur / st.max) : 1.0f;
@@ -2314,7 +2334,7 @@ namespace
 			else if(h.attacker.mass >= g_cfg.creatureMidMass) c = 2;
 		}
 		if(h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) c++;
-		if(h.attackerIsActor && h.attacker.mass >= g_cfg.kbGiantMass) c = 4;
+		if(h.attackerIsActor && h.attacker.mass >= g_cfg.kbGiantMass) c = (h.flags & (TESHitEvent::kFlag_PowerAttack | TESHitEvent::kFlag_Bash)) ? g_cfg.bigAtkPower : g_cfg.bigAtkNormal;	// v0.29.0: por dificuldade (antes: sempre 4)
 		if(c < 1) c = 1;
 		if(c > 4) c = 4;
 		return c;
@@ -2385,7 +2405,7 @@ namespace
 				int kind = 0;
 				Lock();
 				{
-					PoiseState & st = FindOrCreate(as.id, mxA, mpA, now);
+					PoiseState & st = FindOrCreate(as.id, mxA, mpA, now, !as.isPlayer && as.mass >= g_cfg.kbGiantMass);
 					Regen(st, now);
 					RegenPosture(st, now);
 					const bool bleeding = (now < st.bleedUntil) || (now < st.bleedImmuneUntil);
@@ -2606,7 +2626,7 @@ namespace
 		const float mxV = ComputeMax(h.victim), mpV = ComputeMaxPosture(h.victim);
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(h.victim.id, mxV, mpV, now);
+			PoiseState & st = FindOrCreate(h.victim.id, mxV, mpV, now, !h.victim.isPlayer && h.victim.mass >= g_cfg.kbGiantMass);
 			Regen(st, now);
 			if(now >= st.bleedUntil && now >= st.rageUntil && now >= st.lockUntil)
 			{
@@ -2835,7 +2855,7 @@ namespace
 		int kind = g_cfg.parryAttackerStagger ? 1 : 0;	// stagger leve (recuo)
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(h.attacker.id, mxA, mpA, now);
+			PoiseState & st = FindOrCreate(h.attacker.id, mxA, mpA, now, !h.attacker.isPlayer && h.attacker.mass >= g_cfg.kbGiantMass);
 			Regen(st, now);
 			RegenPosture(st, now);
 			const bool frozen = (now < st.bleedUntil) || (now < st.bleedImmuneUntil) || (now < st.rageUntil);
@@ -3058,7 +3078,7 @@ namespace
 		int kind = 0;
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(h.victim.id, mx, mp, now);
+			PoiseState & st = FindOrCreate(h.victim.id, mx, mp, now, !h.victim.isPlayer && h.victim.mass >= g_cfg.kbGiantMass);
 			Regen(st, now);
 			RegenPosture(st, now);
 			before = st.cur;
@@ -3921,7 +3941,7 @@ namespace
 				if(gap >= (DWORD)g_cfg.hitchMs && gap < 2500 && (DWORD)(tn - g_lastActTick) < 8000 && InterlockedIncrement(&hitchLogged) <= 60)
 					_MESSAGE("HITCH: game thread gap %u ms in combat (last NahIDWin action: %s, %u ms ago)", (unsigned)gap, g_lastActLabel, (unsigned)(tn - g_lastActTick));
 			}
-			if(g_cfg.diag && evn && evn->data && (_strnicmp(evn->data, "block", 5) == 0 || _strnicmp(evn->data, "recoil", 6) == 0 || _strnicmp(evn->data, "parry", 5) == 0 || _strnicmp(evn->data, "bleed", 5) == 0 || _strnicmp(evn->data, "stagger", 7) == 0 || _strnicmp(evn->data, "ragdoll", 7) == 0 || _strnicmp(evn->data, "knock", 5) == 0 || _strnicmp(evn->data, "getup", 5) == 0))
+			if(g_cfg.diag && evn && evn->data && (_strnicmp(evn->data, "block", 5) == 0 || _strnicmp(evn->data, "recoil", 6) == 0 || _strnicmp(evn->data, "parry", 5) == 0 || _strnicmp(evn->data, "bleed", 5) == 0 || _strnicmp(evn->data, "stagger", 7) == 0 || _strnicmp(evn->data, "ragdoll", 7) == 0 || _strnicmp(evn->data, "knock", 5) == 0 || _strnicmp(evn->data, "getup", 5) == 0 || _strnicmp(evn->data, "killmove", 8) == 0 || _strnicmp(evn->data, "pairedStart", 11) == 0))
 			{
 				static volatile LONG animLogged = 0;
 				if(animLogged < 300 && *(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14)
@@ -4045,7 +4065,7 @@ namespace
 		const bool r = ((NotifyFnT)orig)(holder, evn);
 		NoteBleedResult(holder, evn, r);
 		// v0.28.0 (Etapa C): o golpe do jogador e cobrado aqui, quando o grafo aceita o inicio do ataque (sem Papyrus)
-		if(r && g_cfg.nativeSwing && evn && evn->data && !g_ownNotify)
+		if(r && g_cfg.nativeSwing == 1 && evn && evn->data && !g_ownNotify)
 		{
 			__try
 			{
@@ -4124,7 +4144,7 @@ namespace
 		DWORD left = 0;
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now);
+			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 			if(now >= st.rageReadyAt && now >= st.bleedUntil && now >= st.rageUntil)
 			{
 				st.rageUntil = now + (DWORD)(g_cfg.rageSeconds * 1000.0f);
@@ -4232,7 +4252,7 @@ namespace
 		if(!ReadActorStats(a, &s)) return;
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(id, ComputeMax(s), ComputeMaxPosture(s), now);
+			PoiseState & st = FindOrCreate(id, ComputeMax(s), ComputeMaxPosture(s), now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 			if(now >= st.exhaustReadyAt && now >= st.bleedUntil && now >= st.rageUntil && now >= st.lockUntil)
 			{
 				st.exhaustReadyAt = now + (DWORD)(g_cfg.exhaustCooldown * 1000.0f);
@@ -4539,7 +4559,7 @@ namespace
 			g_supUntil = now;
 			Lock();
 			{
-				PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now);
+				PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 				st.rageUntil = now;
 			}
 			Unlock();
@@ -4552,7 +4572,7 @@ namespace
 		DWORD left = 0;
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now);
+			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 			if(now >= g_supReadyAt && now >= st.bleedUntil && now >= st.rageUntil)
 			{
 				st.rageUntil = now + (DWORD)(g_cfg.supSeconds * 1000.0f);
@@ -4784,6 +4804,8 @@ namespace
 	void N_SelfPoise(StaticFunctionTag *, bool heavy);
 
 	// ev: nome do evento de ENTRADA do grafo (attackStart*, attackPowerStart*, bashStart, bashPowerStart). Chamado so para o jogador.
+	void PlayerSwingCore(int mode, bool left, const char * ev);
+	// NativeSwing=1: pelo evento de ENTRADA do grafo (o clique). NativeSwing=2 (padrao): pelo evento real da animacao, via N_SwingEvent.
 	void NativePlayerSwing(const char * ev)
 	{
 		int mode;
@@ -4792,6 +4814,11 @@ namespace
 		else if(_strnicmp(ev, "attackStart", 11) == 0 && !strstr(ev, "Release")) { mode = 0; left = strstr(ev, "LeftHand") != NULL; }
 		else if(_stricmp(ev, "bashStart") == 0 || _stricmp(ev, "bashPowerStart") == 0) mode = 2;
 		else return;
+		PlayerSwingCore(mode, left, ev);
+	}
+
+	void PlayerSwingCore(int mode, bool left, const char * ev)
+	{
 		if(!ModOn()) return;
 		PlayerCharacter * pl = Engine::Player();
 		if(!pl) return;
@@ -4860,6 +4887,17 @@ namespace
 		return c;
 	}
 
+	// v0.29.0: o Papyrus so avisa que o golpe aconteceu (evento real da animacao); a DLL faz o resto. kind: 0 direita, 1 esquerda, 2 bash.
+	void N_SwingEvent(StaticFunctionTag *, SInt32 kind)
+	{
+		if(g_cfg.nativeSwing != 2) return;
+		__try
+		{
+			PlayerSwingCore(kind == 2 ? 2 : 0, kind == 1, kind == 2 ? "bashStart(anim)" : (kind == 1 ? "weaponLeftSwing(anim)" : "weaponSwing(anim)"));
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { InterlockedIncrement(&g_faults); }
+	}
+
 	// Regeneracao de estamina do jogador em % (100 = normal). A armadura abranda.
 	float N_GetRegenPercent(StaticFunctionTag *)
 	{
@@ -4879,15 +4917,19 @@ namespace
 		RefreshWornFromGame(now);		// v0.28.0: o equipamento e lido aqui (uma vez por ciclo), nao pelo Papyrus
 		if(g_exhaustBlockUntil && (LONG)(now - g_exhaustBlockUntil) < 0) return 0.0f;
 		float base = 100.0f;
+		int cls = 1;
 		if(g_cfg.classRegen)
 		{
-			const int cls = ArmorClass(PlayerArmor(), true);
+			cls = ArmorClass(PlayerArmor(), true);
+			if(cls < 1) cls = 1;
+			if(cls > 3) cls = 3;
 			base = 100.0f * (1.0f - g_cfg.classRegenPenalty * (float)(cls - 1));
 			if(base < 10.0f) base = 10.0f;
 		}
 		else if(g_cfg.armorRegenEnabled) { base = 100.0f / (1.0f + (PlayerArmor() / 100.0f) * g_cfg.armorRegenFactor); if(base < 10.0f) base = 10.0f; }
 		else if(!g_cfg.regenEnabled) return -1.0f;
-		// poise do jogador: staggerlock = sem regeneracao; poise baixo = regeneracao mais lenta
+		// fatores que se multiplicam: poise baixo, estamina baixa, exaustao
+		float mods = 1.0f;
 		{
 			float pf = 1.0f; bool lock = false;
 			Lock();
@@ -4901,19 +4943,21 @@ namespace
 			}
 			Unlock();
 			if(lock) return 0.0f;
-			if(pf < g_cfg.tierLow) base *= g_cfg.poiseRegenLow;
-			else if(pf < g_cfg.tierMid) base *= g_cfg.poiseRegenMid;
+			if(pf < g_cfg.tierLow) mods *= g_cfg.poiseRegenLow;
+			else if(pf < g_cfg.tierMid) mods *= g_cfg.poiseRegenMid;
 		}
-		// estamina baixa: zona de cansaco; exausto (depois do tempo minimo): regeneracao reduzida
 		{
 			float sc = 0.0f, sm = 0.0f;
 			PlayerCharacter * pl = Engine::Player();
-			if(pl && ReadAV((Actor *)pl, 26, &sc, &sm) && sm > 0.0f && sc / sm < g_cfg.lowStamZone) base *= g_cfg.lowStamRegen;
+			if(pl && ReadAV((Actor *)pl, 26, &sc, &sm) && sm > 0.0f && sc / sm < g_cfg.lowStamZone) mods *= g_cfg.lowStamRegen;
 		}
-		if(g_playerExhausted) base *= g_cfg.exhaustRegenFactor;
-		if(!g_cfg.regenEnabled || !inCombat) return base;
+		if(g_playerExhausted) mods *= g_cfg.exhaustRegenFactor;
+		if(!g_cfg.regenEnabled || !inCombat) return base * mods;
 		if(g_lastSwingTick && (now - g_lastSwingTick) < (DWORD)g_cfg.regenDelayMs) return 0.0f;
-		float r = base * g_cfg.regenCombatPct / 100.0f;
+		// v0.29.0: em combate a regeneracao base vem da tabela por classe da armadura (sem somar a penalidade por classe); 0 = forma antiga
+		float r;
+		if(g_cfg.classRegen && g_cfg.classRegenCombat[cls] > 0.0f) r = 100.0f * mods * g_cfg.classRegenCombat[cls] / 100.0f;
+		else r = base * mods * g_cfg.regenCombatPct / 100.0f;
 		if(g_blockHeld) r *= g_cfg.regenBlockFactor;
 		return r;
 	}
@@ -4952,7 +4996,7 @@ namespace
 		bool ok = false;
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now);
+			PoiseState & st = FindOrCreate(s.id, ComputeMax(s), ComputeMaxPosture(s), now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 			const bool swingingNow = g_cfg.exhReenter && g_lastExhSwing && (LONG)(now - g_lastExhSwing) < 3000;
 			if((now >= st.exhaustReadyAt || swingingNow) && now >= st.bleedUntil && now >= st.rageUntil)
 			{
@@ -5106,6 +5150,7 @@ namespace
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetBleedSeconds", "NahIDWinNative", N_GetBleedSeconds, registry));
 		registry->RegisterFunction(new NativeFunction3 <StaticFunctionTag, float, SInt32, SInt32, float>("GetSwingCost", "NahIDWinNative", N_GetSwingCost, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, bool>("ModActive", "NahIDWinNative", N_ModActive, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("SwingEvent", "NahIDWinNative", N_SwingEvent, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetRegenPercent", "NahIDWinNative", N_GetRegenPercent, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, bool>("GetCombatRegen", "NahIDWinNative", N_GetCombatRegen, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));
@@ -5152,7 +5197,7 @@ namespace
 		const DWORD now = GetTickCount();
 		Lock();
 		{
-			PoiseState & st = FindOrCreate(s.id, mx, mp, now);
+			PoiseState & st = FindOrCreate(s.id, mx, mp, now, !s.isPlayer && s.mass >= g_cfg.kbGiantMass);
 			Regen(st, now);
 			RegenPosture(st, now);
 			float poiseFrac = (st.max > 0.0f) ? (st.cur / st.max) : 1.0f;

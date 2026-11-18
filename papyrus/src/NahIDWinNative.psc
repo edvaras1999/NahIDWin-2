@@ -30,6 +30,8 @@ float Function GetRegenPercent() global native
 float Function GetCombatRegen(bool inCombat) global native
 ; v0.28.0: estado real do mod (interruptor unico, o mesmo do menu). Falso = o mod nao mexe em nada.
 bool Function ModActive() global native
+; v0.29.0: o Papyrus so avisa que o jogador deu um golpe (0 direita, 1 esquerda, 2 bash); a DLL le a arma, cobra a estamina e decide a exaustao
+Function SwingEvent(int kind) global native
 ; Tipo do item da mao esquerda do jogador (10 = escudo): o deflect de magia gasta menos magicka e devolve mais com escudo.
 Function SetLeftType(int t) global native
 ; Peso das pecas de armadura vestidas pelo jogador (define a classe de defesa 1-3).
