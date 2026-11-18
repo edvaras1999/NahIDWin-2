@@ -12,6 +12,7 @@ Depois compilar (Actions): DLL e os .pex (os .psc mudaram, entao os .pex tem de 
 O que muda:
 1. Interruptor unico: no Modo 1 manda o global do save (o que o menu mostra). Save novo com o menu "desativado" = mod realmente parado. Ao desligar no menu, os Game Settings voltam ao original.
 2. Papyrus mais leve: a DLL le a armadura equipada; o ciclo de 0.5 s e cada golpe fazem muito menos chamadas ao jogo. INI [Performance] NativeEquipment=1 (0 = forma antiga).
+2b. Etapa C: a DLL cobra o custo de cada golpe (INI [Performance] NativeSwing=1; 0 = forma antiga). Cobra quando o ataque comeca, nao a meio da animacao. No log, uma linha "native swing: first player swing charged by the DLL" confirma que funciona; se nao aparecer, ponha NativeSwing=0 e envie o log.
 3. Deflect: no Modo 1 o nosso deflect fica desligado e corre o do Inpa original.
 4. Observacao: o log mostra "MOD SWITCH" e "INPA-CTL" (mudancas do controle do Inpa). Sem ligar o log do Papyrus.
 

@@ -187,7 +187,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache, nativeEquip; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache, nativeEquip, nativeSwing; int dbgNoHealth, dbgNoNotify, dbgNoBlockStam, dbgNoParry;
 		// deflect continuo
 		int		deflectRequireParry, deflectRecast;
 		float	deflectCostWeapon, deflectCostShield, deflectRetWeapon, deflectRetShield, deflectPoiseFactor, deflectPostureFactor, deflectWindowMs;
@@ -814,6 +814,7 @@ namespace
 		c.perfMode = IniI("Performance", "Mode", 0);
 		c.statCache = IniI("Performance", "StatCache", 1);		// v0.27.0: cache dos stats por ator (1 s)
 		c.tableCache = IniI("Performance", "TableCache", 1);	// v0.27.0: tabela de armas pre-calculada
+		c.nativeSwing = IniI("Performance", "NativeSwing", 1);	// v0.28.0 (Etapa C): a DLL cobra o golpe do jogador (o Papyrus deixa de o fazer)
 		c.nativeEquip = IniI("Performance", "NativeEquipment", 1);	// v0.28.0: a DLL le o equipamento do jogador (o Papyrus deixa de o fazer)
 		c.tickMs = 0;
 		if(c.perfMode >= 1)
@@ -827,7 +828,7 @@ namespace
 		if(GetFileAttributesExA(g_iniPath, GetFileExInfoStandard, &fad)) g_iniTime = fad.ftLastWriteTime;
 
 		_MESSAGE("BLOCK OWNER: %s (native sound %d, block sound %d)", c.inpaMode ? "Mode 1 = Inpa (scripts decide the parry window)" : "Mode 0 = DLL (own parry window)", c.nativeSound, c.blockSound);
-		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d), stat cache %d, weapon table %d, native equipment %d", c.perfMode, c.tickMs, c.diag, c.statCache, c.tableCache, c.nativeEquip);
+		_MESSAGE("performance mode %d (tick throttle %d ms, diag %d), stat cache %d, weapon table %d, native equipment %d, native swing %d", c.perfMode, c.tickMs, c.diag, c.statCache, c.tableCache, c.nativeEquip, c.nativeSwing);
 		_MESSAGE("config: enabled=%d player=%d npcs=%d staggerMode=%d (slot %d, '%s') posture=%d (difficulty %.2f) hud=%d bar=%d diag=%d  [%s]",
 			c.enabled, c.applyPlayer, c.applyNPCs, c.staggerMode, c.nativeSlot, c.nativeEvent, c.postureEnabled, c.postureDifficulty, c.hudEnabled, c.hudBar, c.diag, g_iniPath);
 		ApplyHealthGMST();
@@ -4033,6 +4034,7 @@ namespace
 		__except(EXCEPTION_EXECUTE_HANDLER) {}
 	}
 
+	void NativePlayerSwing(const char * ev);
 	bool __fastcall HookNotify(void * holder, void *, const BSFixedString * evn)
 	{
 		void ** vtbl = NULL;
@@ -4042,6 +4044,15 @@ namespace
 		if(ShouldBlockNotify(holder, evn)) return true;
 		const bool r = ((NotifyFnT)orig)(holder, evn);
 		NoteBleedResult(holder, evn, r);
+		// v0.28.0 (Etapa C): o golpe do jogador e cobrado aqui, quando o grafo aceita o inicio do ataque (sem Papyrus)
+		if(r && g_cfg.nativeSwing && evn && evn->data && !g_ownNotify)
+		{
+			__try
+			{
+				if(*(UInt32 *)((UInt8 *)holder - 0x20 + 0x0C) == 0x14) NativePlayerSwing(evn->data);
+			}
+			__except(EXCEPTION_EXECUTE_HANDLER) { }
+		}
 		return r;
 	}
 
@@ -4726,6 +4737,91 @@ namespace
 		ActorStats s;
 		if(!ReadActorStats((Actor *)p, &s)) return 0.0f;
 		return s.armor;
+	}
+
+	// ---- v0.28.0 Etapa C: custo do golpe do jogador calculado e cobrado pela DLL
+	void SendExhaustEvent()
+	{
+		EventDispatcher<PoiseModEvent> * d = NULL;
+		if(g_messaging) d = (EventDispatcher<PoiseModEvent> *)g_messaging->GetEventDispatcher(SKSEMessagingInterface::kDispatcher_ModEvent);
+		if(!d) return;
+		PlayerCharacter * p = Engine::Player();
+		if(!p) return;
+		PoiseModEvent evn("NahIDWin_Exhaust", "", 0.0f, (TESForm *)p);
+		if(!SafeSend(d, &evn)) InterlockedIncrement(&g_faults);
+	}
+
+	// Arma na mao (0 esquerda, 1 direita): peso e codigo de tipo do Papyrus (GetEquippedItemType).
+	void ReadPlayerHand(int hand, float * w, int * ty)
+	{
+		*w = 0.0f; *ty = 0;
+		__try
+		{
+			PlayerCharacter * pl = Engine::Player();
+			if(!pl) return;
+			Actor * a = (Actor *)pl;
+			if(!a->processManager) return;
+			TESForm * f = a->processManager->equippedObject[hand];
+			if(!f) return;
+			if(f->formType == kFormType_Weapon)
+			{
+				TESObjectWEAP * wp = (TESObjectWEAP *)f;
+				*w = wp->weight.weight;
+				const int t = (int)wp->type();
+				*ty = (t >= 0 && t <= 8) ? t : (t == 9 ? 12 : 1);
+			}
+			else if(f->formType == kFormType_Armor)
+			{
+				*w = ((TESObjectARMO *)f)->weight.weight;
+				*ty = 10;
+			}
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { }
+	}
+
+	float N_GetSwingCost(StaticFunctionTag *, SInt32 mode, SInt32 rightType, float weight);
+	bool N_TryExhaust(StaticFunctionTag *);
+	void N_SelfPoise(StaticFunctionTag *, bool heavy);
+
+	// ev: nome do evento de ENTRADA do grafo (attackStart*, attackPowerStart*, bashStart, bashPowerStart). Chamado so para o jogador.
+	void NativePlayerSwing(const char * ev)
+	{
+		int mode;
+		bool left = false;
+		if(_strnicmp(ev, "attackPowerStart", 16) == 0) { mode = 1; left = strstr(ev, "LeftHand") != NULL; }
+		else if(_strnicmp(ev, "attackStart", 11) == 0 && !strstr(ev, "Release")) { mode = 0; left = strstr(ev, "LeftHand") != NULL; }
+		else if(_stricmp(ev, "bashStart") == 0 || _stricmp(ev, "bashPowerStart") == 0) mode = 2;
+		else return;
+		if(!ModOn()) return;
+		PlayerCharacter * pl = Engine::Player();
+		if(!pl) return;
+		float w, wR; int ty, tyR;
+		ReadPlayerHand(1, &wR, &tyR);
+		if(mode == 2) { int tl; ReadPlayerHand(0, &w, &tl); ty = tyR; }
+		else if(left) ReadPlayerHand(0, &w, &ty);
+		else { w = wR; ty = tyR; }
+		static DWORD lastTick = 0;
+		static float lastPaid = 0.0f;
+		const DWORD now = GetTickCount();
+		if(mode == 1) g_powerIntent = 0;
+		float cost = N_GetSwingCost(NULL, mode, ty, w);
+		if(cost > 0.0f && mode == 1 && lastTick && now - lastTick < 400)
+			cost = (cost > lastPaid) ? cost - lastPaid : 0.0f;	// o jogo mandou o ataque normal e logo o forte: so falta a diferenca
+		if(mode == 0 && cost > 0.0f) { lastTick = now; lastPaid = cost; }
+		else if(mode != 0) { lastTick = 0; lastPaid = 0.0f; }
+		static volatile LONG seen = 0;
+		if(InterlockedIncrement(&seen) == 1) _MESSAGE("native swing: first player swing charged by the DLL (event %s)", ev);
+		else if(g_cfg.diag && seen < 60) _MESSAGE("native swing: %s hand %d weight %.1f type %d -> %.1f", ev, left ? 0 : 1, w, ty, cost);
+		if(cost > 0.0f)
+		{
+			RestoreAV((Actor *)pl, 26, -cost);
+			float cur = 1.0f, mx = 0.0f;
+			if(ReadAV((Actor *)pl, 26, &cur, &mx) && cur <= 0.0f && !g_playerExhausted)
+			{
+				if(N_TryExhaust(NULL)) SendExhaustEvent();
+			}
+		}
+		if(g_playerExhausted) N_SelfPoise(NULL, mode == 1);
 	}
 
 	// Custo de estamina de um golpe do jogador. mode: 0 balanco normal, 1 golpe forte, 2 golpe de escudo.

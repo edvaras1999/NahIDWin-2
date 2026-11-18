@@ -138,6 +138,7 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 
 - **One master switch.** With Inpa (Mode 1) the on/off switch is the global `zzzSekiro_MCM_turn` of the save, the same one the menu shows. A new save with the menu showing "off" now really does nothing: no stamina costs, no regen changes, no poise/posture. `[General] Enabled` only applies in Mode 0. Turning the mod off in the menu restores the game settings the mod had zeroed.
 - **Lighter Papyrus.** `[Performance] NativeEquipment=1`: the DLL reads the worn armor itself; the 0.5 s loop and each swing no longer do ~15 engine calls. The log summary now shows Papyrus latency per event type.
+- **Swing cost in the DLL (stage C).** `[Performance] NativeSwing=1`: the DLL charges the stamina of each swing (weapon weight/type read natively), starts exhaustion and the exhausted self-poise, with no Papyrus per swing. Same formulas as before; the cost is charged when the attack starts. 0 = old Papyrus way.
 - **Inpa's deflect.** In Mode 1 the mod's own magic deflect is off; Inpa's original ward deflect runs untouched.
 - **Diagnostics.** The log shows `MOD SWITCH` and `INPA-CTL` lines (changes of `zzzSekiro_control`, with a warning if it stays at 1 after the window).
 - The `.psc` files changed: recompile the `.pex`.

@@ -24,6 +24,7 @@ Event OnInit()
 	RegisterForModEvent("NahIDWin_Execute", "OnNahExecute")
 	RegisterForModEvent("NahIDWin_Reflect", "OnNahReflect")
 	RegisterForModEvent("NahIDWin_Perilous", "OnNahPerilous")
+	RegisterForModEvent("NahIDWin_Exhaust", "OnNahExhaust")
 	RegisterForModEvent("NahIDWin_Repair", "OnNahRepair")
 	RegisterForSleep()
 	RegisterInputs()
@@ -56,6 +57,7 @@ Function OnNahLoad(string eventName, string strArg, float numArg, Form sender)
 	RegisterForModEvent("NahIDWin_Execute", "OnNahExecute")
 	RegisterForModEvent("NahIDWin_Reflect", "OnNahReflect")
 	RegisterForModEvent("NahIDWin_Perilous", "OnNahPerilous")
+	RegisterForModEvent("NahIDWin_Exhaust", "OnNahExhaust")
 	RegisterForModEvent("NahIDWin_Repair", "OnNahRepair")
 	RegisterForSleep()
 	NahIDWinNative.SetLivesUsed(livesUsed)
@@ -118,8 +120,7 @@ EndFunction
 
 ; v0.28.0: os valores originais ficam guardados para os repor se o mod for desligado no menu (nao ha reinicio do jogo).
 float[] gmstOrig
-string[] gmstName
-bool gmstZeroed = false
+string[] gmstKeys
 
 Function ZeroGmst(string gmstName)
 	float before = Game.GetGameSettingFloat(gmstName)
@@ -127,22 +128,21 @@ Function ZeroGmst(string gmstName)
 		RememberGmst(gmstName, before)
 	endif
 	Game.SetGameSettingFloat(gmstName, 0.0)
-	gmstZeroed = true
 	NahIDWinNative.Log("GMST " + gmstName + ": " + before + " -> " + Game.GetGameSettingFloat(gmstName))
 EndFunction
 
 Function RememberGmst(string n, float v)
 	if !gmstOrig
 		gmstOrig = new float[16]
-		gmstName = new string[16]
+		gmstKeys = new string[16]
 	endif
 	int i = 0
 	while i < 16
-		if gmstName[i] == n
+		if gmstKeys[i] == n
 			return
 		endif
-		if gmstName[i] == ""
-			gmstName[i] = n
+		if gmstKeys[i] == ""
+			gmstKeys[i] = n
 			gmstOrig[i] = v
 			return
 		endif
@@ -155,12 +155,11 @@ Function RestoreVanillaCosts()
 		return
 	endif
 	int i = 0
-	while i < 16 && gmstName[i] != ""
-		Game.SetGameSettingFloat(gmstName[i], gmstOrig[i])
-		NahIDWinNative.Log("GMST " + gmstName[i] + " restored to " + gmstOrig[i])
+	while i < 16 && gmstKeys[i] != ""
+		Game.SetGameSettingFloat(gmstKeys[i], gmstOrig[i])
+		NahIDWinNative.Log("GMST " + gmstKeys[i] + " restored to " + gmstOrig[i])
 		i += 1
 	endwhile
-	gmstZeroed = false
 EndFunction
 
 ; Interruptor unico: se o estado efectivo do mod mudar (menu), aplica ou repoe os Game Settings e a regeneracao de estamina.
@@ -184,16 +183,33 @@ EndFunction
 Function RegisterInputs()
 	Actor pl = Game.GetPlayer()
 	if pl
-		RegisterForAnimationEvent(pl, "weaponSwing")
-		RegisterForAnimationEvent(pl, "weaponLeftSwing")
-		RegisterForAnimationEvent(pl, "bashStart")
-		RegisterForAnimationEvent(pl, "bashPowerStart")
-		RegisterForAnimationEvent(pl, "attackPowerStartInPlace")
-		RegisterForAnimationEvent(pl, "attackPowerStartForward")
-		RegisterForAnimationEvent(pl, "attackPowerStartBackward")
-		RegisterForAnimationEvent(pl, "attackPowerStartLeft")
-		RegisterForAnimationEvent(pl, "attackPowerStartRight")
-		RegisterForAnimationEvent(pl, "attackPowerStartDualWield")
+		nativeSwing = NahIDWinNative.IniGetF("Performance", "NativeSwing", 1.0) > 0.5
+		if nativeSwing
+			; v0.28.0 (Etapa C): a DLL cobra os golpes; saves antigos tinham estes registos, retiram-se
+			UnregisterForAnimationEvent(pl, "weaponSwing")
+			UnregisterForAnimationEvent(pl, "weaponLeftSwing")
+			UnregisterForAnimationEvent(pl, "bashStart")
+			UnregisterForAnimationEvent(pl, "bashPowerStart")
+			UnregisterForAnimationEvent(pl, "attackPowerStartInPlace")
+			UnregisterForAnimationEvent(pl, "attackPowerStartForward")
+			UnregisterForAnimationEvent(pl, "attackPowerStartBackward")
+			UnregisterForAnimationEvent(pl, "attackPowerStartLeft")
+			UnregisterForAnimationEvent(pl, "attackPowerStartRight")
+			UnregisterForAnimationEvent(pl, "attackPowerStartDualWield")
+			UnregisterForAnimationEvent(pl, "attackPowerStartForwardLeftHand")
+		else
+			RegisterForAnimationEvent(pl, "weaponSwing")
+			RegisterForAnimationEvent(pl, "weaponLeftSwing")
+			RegisterForAnimationEvent(pl, "bashStart")
+			RegisterForAnimationEvent(pl, "bashPowerStart")
+			RegisterForAnimationEvent(pl, "attackPowerStartInPlace")
+			RegisterForAnimationEvent(pl, "attackPowerStartForward")
+			RegisterForAnimationEvent(pl, "attackPowerStartBackward")
+			RegisterForAnimationEvent(pl, "attackPowerStartLeft")
+			RegisterForAnimationEvent(pl, "attackPowerStartRight")
+			RegisterForAnimationEvent(pl, "attackPowerStartDualWield")
+			RegisterForAnimationEvent(pl, "attackPowerStartForwardLeftHand")
+		endif
 		RegisterForAnimationEvent(pl, "staggerStart")
 		; so para o diagnostico das quedas do jogador (so escrevem no log)
 		RegisterForAnimationEvent(pl, "recoilStart")
@@ -203,7 +219,6 @@ Function RegisterInputs()
 		RegisterForAnimationEvent(pl, "ragdollStart")
 		RegisterForAnimationEvent(pl, "recoilStop")
 		RegisterForAnimationEvent(pl, "staggerStop")
-		RegisterForAnimationEvent(pl, "attackPowerStartForwardLeftHand")
 		RegisterForAnimationEvent(pl, "ragdollEnd")
 		RegisterForAnimationEvent(pl, "GetUpStart")
 		RegisterForAnimationEvent(pl, "GetUpEnd")
@@ -268,6 +283,7 @@ EndEvent
 bool ctrlHeld = false
 bool bridgeMin = false
 bool legacyEquip = false
+bool nativeSwing = true
 float loopCombat = 0.5
 float loopIdle = 2.5
 float wdNext = 0.0
@@ -281,6 +297,7 @@ Function RefreshPerf()
 	; the combat loop is NEVER slowed (stamina and exhaustion depend on it); only the idle loop is slower in the Light/Minimal modes
 	loopCombat = 0.5
 	legacyEquip = NahIDWinNative.IniGetF("Performance", "NativeEquipment", 1.0) < 0.5
+	nativeSwing = NahIDWinNative.IniGetF("Performance", "NativeSwing", 1.0) > 0.5
 	if pm >= 1.5
 		loopIdle = 5.0
 	elseif pm >= 0.5
@@ -480,6 +497,13 @@ Function OnNahReflect(string eventName, string strArg, float numArg, Form sender
 EndFunction
 
 ; Ataque perigoso: aviso visual (simbolo + brilho do Inpa) e som no atacante.
+; v0.28.0 (Etapa C): a DLL cobrou o golpe, a estamina chegou a zero e a exaustao comecou: aqui so se preparam os efeitos
+Function OnNahExhaust(string eventName, string strArg, float numArg, Form sender)
+	if NahIDWinNative.ModActive()
+		DoExhaustPlayer()
+	endif
+EndFunction
+
 Function OnNahPerilous(string eventName, string strArg, float numArg, Form sender)
 	Actor a = sender as Actor
 	if !a || a.IsDead()
@@ -748,6 +772,10 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 		if asEventName == "staggerStart"
 			OnPlayerStagger()
 		endif
+		return
+	endif
+	if nativeSwing
+		; Etapa C: os golpes sao cobrados pela DLL (nenhuma chamada ao jogo aqui)
 		return
 	endif
 	int mode = 0
