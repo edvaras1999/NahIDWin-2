@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.29.0 (giants by difficulty, regen by armor class, swing cost from the animation event, faster execution)"
+#define PLUGIN_VERSION_STR	"0.29.1 (poise lock + protection, swing poise only when stamina is short, reliable execution with DLL guarantee, NPC stamina scan)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -303,6 +303,8 @@ namespace
 		// bosses (2 vidas): unico + nivel minimo
 		int		execEnabled, execBigKill, execMeleeOnly;
 		float	execRange, execChance, execPowerChance;
+		float	lockProtectNpc, lockProtectPlayer, execBigPercent;	// v0.29.1
+		int		execGuaranteeMs, npcScanMs;								// v0.29.1
 		float	gbDmgMult, lockPostureCapPct;			// execucao garantida (evento para o Papyrus); gigantes/dragoes: matar
 		float	bossPoiseMult, bossPostureMult, bigPoiseMult, bigPostureMult;
 		char	supAnim[48];						// evento de animacao ao ativar o Supremo (vazio = nenhum)
@@ -515,7 +517,7 @@ namespace
 		c.hitchMs		= IniI("Diagnostics", "HitchMs", 120);
 		c.animTier[1]	= IniI("Behavior", "LightAnim", 1);
 		c.animTier[2]	= IniI("Behavior", "MediumAnim", 2);
-		c.animTier[3]	= IniI("Behavior", "PoiseBreakAnim", 3);
+		c.animTier[3]	= IniI("Behavior", "PoiseBreakAnim", 2);
 		c.animTier[4]	= IniI("Behavior", "PostureBreakAnim", 4);
 		c.animTier[5]	= IniI("Behavior", "ParryAnim", 2);
 		for(int q = 1; q <= 5; q++) if(c.animTier[q] < 1 || c.animTier[q] > 4) c.animTier[q] = (q > 4) ? 2 : q;
@@ -682,8 +684,17 @@ namespace
 		c.execBigKill	= IniI("Execution", "KillBigCreatures", 1);
 		c.execMeleeOnly	= IniI("Execution", "MeleeOnly", 1);
 		c.execRange		= IniF("Execution", "Range", 300.0f);
-		c.execChance	= IniF("Execution", "Chance", 60.0f);
+		c.execChance	= IniF("Execution", "Chance", 100.0f);
 		c.execPowerChance = IniF("Execution", "PowerAttackChance", 100.0f);
+		c.execBigPercent = IniF("Execution", "BigDamagePercent", 50.0f);	// v0.29.1: gigantes/chefes/dragoes levam este % da vida maxima (em vez de morrer)
+		if(c.execBigPercent < 1.0f) c.execBigPercent = 1.0f; if(c.execBigPercent > 100.0f) c.execBigPercent = 100.0f;
+		c.execGuaranteeMs = IniI("Execution", "GuaranteeMs", 3500);	// v0.29.1: se a animacao nao matar neste tempo, a DLL mata
+		if(c.execGuaranteeMs < 800) c.execGuaranteeMs = 800; if(c.execGuaranteeMs > 8000) c.execGuaranteeMs = 8000;
+		c.lockProtectNpc = IniF("StaggerLock", "ProtectSecondsNpc", 2.0f);	// v0.29.1
+		c.lockProtectPlayer = IniF("StaggerLock", "ProtectSecondsPlayer", 2.0f);
+		if(c.lockProtectNpc < 0.0f) c.lockProtectNpc = 0.0f; if(c.lockProtectPlayer < 0.0f) c.lockProtectPlayer = 0.0f;
+		c.npcScanMs = IniI("Stamina", "NpcScanMs", 1000);	// v0.29.1: 0 = so NPCs que ja tiveram um golpe
+		if(c.npcScanMs != 0 && c.npcScanMs < 300) c.npcScanMs = 300;
 		c.gbDmgMult		= IniF("GuardBreak", "DamageMult", 1.1f);
 		c.lockPostureCapPct = IniF("StaggerLock", "PostureCapPercent", 15.0f);
 		c.bossPoiseMult	= IniF("Bosses", "PoiseMult", 1.5f);
@@ -877,6 +888,7 @@ namespace
 		DWORD	immuneUntil;	// (legado)
 		DWORD	staggerUntil;	// NPC em stagger do mod: sem guarda ate aqui
 		DWORD	lockUntil;		// staggerlock: poise a zero ate aqui; no fim o poise enche
+		DWORD	protUntil;		// v0.29.1: depois do lock o poise enche e fica protegido (sem nova quebra) ate aqui
 		float	pCur;			// postura atual (SOBE com os golpes; ao chegar a pMax: BleedOut)
 		float	pMax;
 		DWORD	pLastHit;
@@ -963,7 +975,10 @@ namespace
 		if(st.lockUntil)
 		{
 			if((LONG)(now - st.lockUntil) < 0) { st.lastTick = now; return; }	// staggerlock: sem regeneracao
-			st.lockUntil = 0; st.cur = st.isPl ? 0.0f : st.max; st.lastHit = now;	// fim do lock: NPC enche; jogador regenera a partir de 0
+			// v0.29.1: fim do lock: poise enche por inteiro (jogador e NPC) e fica protegido durante ProtectSeconds, para nao ficar preso em stagger lock
+			const DWORD pm = (DWORD)((st.isPl ? g_cfg.lockProtectPlayer : g_cfg.lockProtectNpc) * 1000.0f);
+			st.protUntil = st.lockUntil + pm;
+			st.lockUntil = 0; st.cur = st.max; st.lastHit = now;
 		}
 		if(g_cfg.regenSeconds > 0.0f && st.cur < st.max)
 		{
@@ -1010,7 +1025,7 @@ namespace
 			}
 			PoiseState s;
 			s.isPl = (id == 0x14);
-			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.staggerUntil = 0;
+			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.protUntil = 0; s.staggerUntil = 0;
 			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0; s.gbUntil = 0; s.big = big;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
@@ -2414,7 +2429,7 @@ namespace
 					{
 						const bool inLock = (now < st.lockUntil);
 						st.lastHit = now; st.pLastHit = now;
-						if(!inLock)
+						if(!inLock && now >= st.protUntil)
 						{
 							st.cur -= ret * g_cfg.deflectPoiseFactor;
 							if(st.cur <= 0.0f) { st.cur = 0.0f; st.lockUntil = now + (DWORD)(g_cfg.lockSecondsNpc * 1000.0f); kind = 3; }
@@ -2598,6 +2613,8 @@ namespace
 	}
 	void NpcExhaustNow(Actor * a, UInt32 id, DWORD now);
 	void NpcSwingCharge(Actor * a, UInt32 id, DWORD now, float mult);
+	void ExecBigDamage(TESObjectREFR * ref, UInt32 id);	// v0.29.1
+	void ArmExecJob(UInt32 id, DWORD now, DWORD bleedEnd);
 	// Estamina gasta ao bloquear: dano x fator x diferenca de classe contra a ARMADURA (nao contra o bloqueio). Guarda partida se nao chega.
 	void BlockStamina(Actor * va, const HitInfo & h, float dmg, int atkCls, bool heavyAtk, DWORD now)
 	{
@@ -3073,6 +3090,7 @@ namespace
 		}
 
 		bool doExec = false, bossStagger = false;
+		DWORD execBleedEnd = 0;
 		bool applied = false, poiseBroke = false, postureBroke = false, poiseWasImmune = false, bleeding = false, raging = false, rageStarted = false;
 		float before = 0.0f, after = 0.0f, pBefore = 0.0f, pAfter = 0.0f;
 		int kind = 0;
@@ -3085,6 +3103,7 @@ namespace
 			pBefore = st.pCur;
 			bleeding = (now < st.bleedUntil) || (now < st.bleedImmuneUntil);
 			const bool inLock = (now < st.lockUntil);
+			const bool poiseProt = (now < st.protUntil);	// v0.29.1
 			poiseWasImmune = false;
 			raging = (now < st.rageUntil);
 			const bool bossP1 = (!h.victim.isPlayer && h.victim.boss && st.bossUsed == 0);
@@ -3112,7 +3131,7 @@ namespace
 					const float ch = ((h.flags & TESHitEvent::kFlag_PowerAttack) != 0) ? g_cfg.execPowerChance : g_cfg.execChance;
 					if((float)(rand() % 100) >= ch) { okExec = false; why = "chance"; }
 				}
-				if(okExec) { st.lastExec = now; doExec = true; }
+				if(okExec) { st.lastExec = now; doExec = true; execBleedEnd = st.bleedUntil; }
 				else { static volatile LONG xl = 0; if(g_cfg.diag && InterlockedIncrement(&xl) <= 40) _MESSAGE("execution not requested on %08X: %s", h.victim.id, why); }
 			}
 
@@ -3145,7 +3164,7 @@ namespace
 				st.lastHit = now;
 				st.pLastHit = now;
 				const float fracBefore = (mx > 0.0f && !inLock) ? before / mx : 0.0f;
-				if(!inLock)
+				if(!inLock && !poiseProt)
 				{
 					st.cur -= poiseDmg;
 					if(st.cur <= 0.0f)
@@ -3248,7 +3267,12 @@ namespace
 		if(blocked && !parry && !immune && g_cfg.stamEnabled && h.sourceKind != 2 && h.victimRef && h.victim.alive)
 			BlockStamina((Actor *)h.victimRef, h, dmg, atkCls, heavyAtk, now);
 
-		if(doExec) SendExecuteEvent(h.victimRef, (g_cfg.execBigKill && h.victim.mass >= g_cfg.kbGiantMass) ? "big" : "");
+		if(doExec)
+		{
+			// v0.29.1: gigantes, chefes e dragoes levam dano grande (sem animacao); os outros recebem a animacao do Inpa e a DLL garante o resultado
+			if(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss)) ExecBigDamage(h.victimRef, h.victim.id);
+			else { SendExecuteEvent(h.victimRef, ""); ArmExecJob(h.victim.id, now, execBleedEnd); }
+		}
 
 		// empurrao: so no stagger pesado e so em condicoes especificas
 		if(kind == 3 && g_cfg.kbEnabled && g_cfg.kbForce > 0.0f && !h.victim.isPlayer)
@@ -4271,15 +4295,40 @@ namespace
 		}
 		_MESSAGE("EXHAUSTION (NPC) %08X: ran out of stamina swinging", id);
 	}
+	// v0.29.1: arma da mao direita de qualquer ator (peso e tipo); sem arma devolve 0/0
+	void ReadActorRightHand(Actor * a, float * w, int * ty)
+	{
+		*w = 0.0f; *ty = 0;
+		__try
+		{
+			if(!a || !a->processManager) return;
+			TESForm * f = a->processManager->equippedObject[1];
+			if(!f || f->formType != kFormType_Weapon) return;
+			TESObjectWEAP * wp = (TESObjectWEAP *)f;
+			*w = wp->weight.weight;
+			const int t = (int)wp->type();
+			*ty = (t >= 0 && t <= 8) ? t : (t == 9 ? 12 : 1);
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { *w = 0.0f; *ty = 0; }
+	}
 	void NpcSwingCharge(Actor * a, UInt32 id, DWORD now, float mult)
 	{
 		float w = 10.0f; int t = 1;
-		Lock();
 		{
-			std::map<UInt32, NpcWeapon>::iterator it = g_npcWeapon.find(id);
-			if(it != g_npcWeapon.end()) { w = it->second.w; t = it->second.t; }
+			// primeiro a arma realmente equipada; sem arma (criaturas, punhos) vale a ultima conhecida ou o valor por defeito: todos os ataques custam
+			float aw = 0.0f; int at = 0;
+			ReadActorRightHand(a, &aw, &at);
+			if(at > 0) { w = aw; t = at; }
+			else
+			{
+				Lock();
+				{
+					std::map<UInt32, NpcWeapon>::iterator it = g_npcWeapon.find(id);
+					if(it != g_npcWeapon.end()) { w = it->second.w; t = it->second.t; }
+				}
+				Unlock();
+			}
 		}
-		Unlock();
 		if(t < 0 || t > 12) t = 1;
 		float cost = WeightCost(w) * g_cfg.typeMult[t] * mult;
 		if(!(cost > 0.0f)) return;
@@ -4442,15 +4491,61 @@ namespace
 		SendPlayerAnimEvent(g_cfg.blockHitStopEvent, "end");
 	}
 
+
+	// ---- v0.29.1: inimigos proximos (hostis, vivos, na celula do jogador) entram no controlo de estamina mesmo sem ainda terem acertado ----
+	std::set<UInt32> g_swingIds;
+	int ScanNearbyHostiles(UInt32 * out, int maxN)
+	{
+		int n = 0;
+		__try
+		{
+			PlayerCharacter * pl = Engine::Player();
+			if(!pl || !pl->parentCell) return 0;
+			TESObjectREFR ** arr = pl->parentCell->objectList.arr.entries;
+			const UInt32 cnt = pl->parentCell->objectList.count;
+			if(!arr) return 0;
+			float rad = g_cfg.npcSwingRange; if(rad > 2500.0f) rad = 2500.0f;
+			const float px = pl->pos.x, py = pl->pos.y;
+			for(UInt32 i = 0; i < cnt && i < 8000 && n < maxN; i++)
+			{
+				TESObjectREFR * r = arr[i];
+				if(!r || r == (TESObjectREFR *)pl || r->formType != kFormType_Character) continue;
+				const float dx = r->pos.x - px, dy = r->pos.y - py;
+				if(dx * dx + dy * dy > rad * rad) continue;
+				Actor * a = (Actor *)r;
+				if(a->flags1 & Actor::kFlags_IsPlayerTeammate) continue;
+				if(Engine::LifeState(a) != 0) continue;
+				if(!CALL_MEMBER_FN(a, IsHostileToActor)((Actor *)pl)) continue;
+				out[n++] = (UInt32)r->formID;
+			}
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { }
+		return n;
+	}
 	void TickNpcSwings(DWORD now)
 	{
 		static DWORD last = 0;
 		const bool charge = g_cfg.stamEnabled && g_cfg.npcSwingCharge;
 		if((!charge && !g_cfg.npcGuardRules) || now - last < 60) return;
 		last = now;
-		UInt32 ids[256]; int n = 0;
+		if(charge && g_cfg.npcScanMs > 0)
+		{
+			static DWORD lastScan = 0;
+			if(now - lastScan >= (DWORD)g_cfg.npcScanMs)
+			{
+				lastScan = now;
+				UInt32 sc[96];
+				const int sn = ScanNearbyHostiles(sc, 96);
+				Lock();
+				g_swingIds.clear();
+				for(int k = 0; k < sn; k++) g_swingIds.insert(sc[k]);
+				Unlock();
+			}
+		}
+		UInt32 ids[320]; int n = 0;
 		Lock();
-		for(std::set<UInt32>::iterator it = g_combatants.begin(); it != g_combatants.end() && n < 256; ++it) ids[n++] = *it;
+		for(std::set<UInt32>::iterator it = g_combatants.begin(); it != g_combatants.end() && n < 224; ++it) ids[n++] = *it;
+		for(std::set<UInt32>::iterator it = g_swingIds.begin(); it != g_swingIds.end() && n < 320; ++it) if(g_combatants.find(*it) == g_combatants.end()) ids[n++] = *it;
 		Unlock();
 		for(int i = 0; i < n; i++)
 		{
@@ -4482,6 +4577,53 @@ namespace
 					NpcSwingCharge(a, ids[i], now, mult);
 				}
 			}
+		}
+	}
+
+	// ---- v0.29.1: execucao com garantia. A animacao do Inpa e tentada (pelo Papyrus); se o alvo ainda estiver vivo no prazo, a DLL mata. ----
+	std::map<UInt32, DWORD> g_execJobs;
+	void ArmExecJob(UInt32 id, DWORD now, DWORD bleedEnd)
+	{
+		DWORD dl = now + (DWORD)g_cfg.execGuaranteeMs;
+		if(bleedEnd && (LONG)(bleedEnd - dl) < 0)
+		{
+			// o alvo levanta-se quando o bleedout acaba: o prazo nunca passa disso
+			dl = bleedEnd - 150;
+			if((LONG)(dl - (now + 300)) < 0) dl = now + 300;
+		}
+		Lock();
+		if(g_execJobs.size() > 64) g_execJobs.clear();
+		g_execJobs[id] = dl;
+		Unlock();
+	}
+	void ExecBigDamage(TESObjectREFR * ref, UInt32 id)
+	{
+		g_execTick = GetTickCount();
+		Actor * a = (Actor *)ref;
+		float cur = 0.0f, mx = 0.0f;
+		if(!a || !ReadAV(a, 24, &cur, &mx)) { _MESSAGE("EXECUTION (big) %08X: could not read health", id); return; }
+		const float dmg = mx * g_cfg.execBigPercent / 100.0f;
+		RestoreAV(a, 24, -dmg);
+		_MESSAGE("EXECUTION (big creature/boss) %08X: %.0f%% of max health = %.0f damage (health %.0f/%.0f before)", id, g_cfg.execBigPercent, dmg, cur, mx);
+	}
+	void TickExecJobs(DWORD now)
+	{
+		UInt32 ids[16]; int n = 0;
+		Lock();
+		for(std::map<UInt32, DWORD>::iterator it = g_execJobs.begin(); it != g_execJobs.end(); )
+		{
+			if((LONG)(now - it->second) >= 0) { if(n < 16) ids[n++] = it->first; g_execJobs.erase(it++); }
+			else ++it;
+		}
+		Unlock();
+		for(int i = 0; i < n; i++)
+		{
+			Actor * a = ActorFromFormId(ids[i]);
+			if(!a || Engine::LifeState(a) != 0) { _MESSAGE("EXECUTION %08X: victim already dead (animation or hit did it)", ids[i]); continue; }
+			float cur = 0.0f, mx = 0.0f;
+			if(!ReadAV(a, 24, &cur, &mx) || cur <= 0.0f) continue;
+			RestoreAV(a, 24, -(cur + 1.0f));
+			_MESSAGE("EXECUTION GUARANTEED: %08X was still alive after %d ms (animation did not finish it), killed by the DLL", ids[i], g_cfg.execGuaranteeMs);
 		}
 	}
 	void TickLockJobs(DWORD now)
@@ -4839,8 +4981,10 @@ namespace
 		static volatile LONG seen = 0;
 		if(InterlockedIncrement(&seen) == 1) _MESSAGE("native swing: first player swing charged by the DLL (event %s)", ev);
 		else if(g_cfg.diag && seen < 60) _MESSAGE("native swing: %s hand %d weight %.1f type %d -> %.1f", ev, left ? 0 : 1, w, ty, cost);
+		bool unpaid = false;	// v0.29.1: o golpe so custa poise se a estamina nao chegava para o pagar
 		if(cost > 0.0f)
 		{
+			{ float c0 = 1.0f, m0 = 0.0f; if(ReadAV((Actor *)pl, 26, &c0, &m0) && c0 < cost) unpaid = true; }
 			RestoreAV((Actor *)pl, 26, -cost);
 			float cur = 1.0f, mx = 0.0f;
 			if(ReadAV((Actor *)pl, 26, &cur, &mx) && cur <= 0.0f && !g_playerExhausted)
@@ -4848,7 +4992,7 @@ namespace
 				if(N_TryExhaust(NULL)) SendExhaustEvent();
 			}
 		}
-		if(g_playerExhausted) N_SelfPoise(NULL, mode == 1);
+		if(g_playerExhausted && unpaid) N_SelfPoise(NULL, mode == 1);
 	}
 
 	// Custo de estamina de um golpe do jogador. mode: 0 balanco normal, 1 golpe forte, 2 golpe de escudo.
@@ -5024,7 +5168,7 @@ namespace
 		if(it != g_states.end())
 		{
 			PoiseState & st = it->second;
-			if(now >= st.lockUntil && st.cur > 0.0f)
+			if(now >= st.lockUntil && now >= st.protUntil && st.cur > 0.0f)
 			{
 				st.cur -= st.max * pct / 100.0f;
 				st.lastHit = now;
@@ -5423,6 +5567,7 @@ namespace
 			lastTicks = now;
 			TickSupreme(now);
 			TickLockJobs(now);
+			TickExecJobs(now);
 			TickNpcSwings(now);
 			TickParryCap(now);
 			TickBlockReact(now);

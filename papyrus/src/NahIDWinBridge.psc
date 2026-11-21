@@ -417,7 +417,7 @@ Function OnNahEssential(string eventName, string strArg, float numArg, Form send
 EndFunction
 
 ; Boss gastou a vida extra: o jogo fez o bleedout; espera, repoe a vida, tira a flag e volta a lutar.
-; Execucao garantida: o jogador acertou um alvo com a postura quebrada. Gigantes/dragoes ("big"): morrem. Os outros: feitico de execucao do Inpa.
+; Execucao: o jogador acertou um alvo com a postura quebrada. Gigantes/chefes/dragoes levam dano grande pela DLL (nao chegam aqui). Os outros: feitico de execucao do Inpa (animacao); a DLL garante a morte se a animacao nao a der no prazo.
 Function OnNahExecute(string eventName, string strArg, float numArg, Form sender)
 	Actor v = sender as Actor
 	Actor pl = Game.GetPlayer()
@@ -425,9 +425,7 @@ Function OnNahExecute(string eventName, string strArg, float numArg, Form sender
 		return
 	endif
 	if strArg == "big"
-		NahIDWinNative.Log("execution (big creature): kill " + v)
-		v.Kill(pl)
-		return
+		return	; v0.29.1: a DLL aplica o dano grande; nada a fazer aqui
 	endif
 	GlobalVariable g = Game.GetFormFromFile(0x0011AADE, "NahIDWin.esp") as GlobalVariable
 	int mode = 2

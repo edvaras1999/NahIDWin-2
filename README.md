@@ -134,6 +134,14 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
 - Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
 
+## v0.29.1 - poise lock + protection, swing poise only when stamina is short, reliable execution, NPC stamina scan
+
+- **Swing poise cost** (exhaustion): a swing only costs poise when the stamina could not pay for it. Having stamina while still "exhausted" no longer drains poise.
+- **Poise break stagger** tier lowered (`PoiseBreakAnim=2`, player and NPCs).
+- **Stagger lock**: poise stays at 0 during the lock; when it ends it refills completely (player and NPCs) and is protected from poise damage for `ProtectSecondsNpc/Player` (2.0 s).
+- **Execution**: chance now 100%. The Inpa execution animation is still used; the DLL arms a guarantee (`GuaranteeMs`, 3500 ms, never past the bleedout) and kills the victim if the animation did not. Giants, bosses and dragons take `BigDamagePercent` (50%) of max health instead of dying.
+- **NPC stamina**: hostile enemies near the player are scanned once per second (`NpcScanMs`) and join the swing-cost control even before landing a hit; the real equipped weapon is read at each swing; creatures without a weapon pay the default cost.
+
 ## v0.29.0 - giants by difficulty, regen by armor class, swing cost from the animation, faster execution
 
 - **Swing cost follows the animation.** `[Performance] NativeSwing=2` (default): the real swing event (`weaponSwing`, `weaponLeftSwing`, `bashStart`) reaches Papyrus, which only calls the DLL once; the DLL reads the weapon, charges the stamina and decides exhaustion. Fast clicking no longer charges more than the swings that happen. `1` = charge on the click (0.28 behaviour), `0` = old Papyrus way.
