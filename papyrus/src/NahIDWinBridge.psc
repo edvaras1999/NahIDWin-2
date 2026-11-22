@@ -486,13 +486,7 @@ Function OnNahExecute(string eventName, string strArg, float numArg, Form sender
 		NahIDWinNative.Log("execution: casting Inpa execution (mode " + mode + ", method " + method + ") on " + v + " player hp " + pl.GetActorValue("Health"))
 		sp.Cast(v, pl)
 	endif
-	; registo da vida do jogador durante e depois da execucao (para descobrir o que o mata)
-	int i = 0
-	while i < 14
-		Utility.Wait(0.5)
-		i += 1
-		NahIDWinNative.Log("execution watch " + i + ": player hp " + pl.GetActorValue("Health") + " dead=" + pl.IsDead() + " killmove=" + pl.IsInKillMove() + " ghost=" + pl.IsGhost() + " victim dead=" + v.IsDead())
-	endWhile
+	Utility.Wait(3.5)	; v0.29.2: so protege contra duas execucoes ao mesmo tempo (sem registo de diagnostico)
 	executing = false
 EndFunction
 
@@ -775,12 +769,11 @@ Event OnAnimationEvent(ObjectReference akSource, string asEventName)
 		return
 	endif
 	Actor pl = Game.GetPlayer()
+	; v0.29.2: sem registos de diagnostico no Papyrus (a DLL ja regista estes eventos)
 	if asEventName == "recoilStop" || asEventName == "staggerStop" || asEventName == "ragdollEnd" || asEventName == "GetUpStart" || asEventName == "GetUpEnd"
-		NahIDWinNative.Log("PLAYER ANIM: " + asEventName)
 		return
 	endif
 	if asEventName == "staggerStart" || asEventName == "recoilStart" || asEventName == "recoilLargeStart" || asEventName == "bleedOutStart" || asEventName == "KnockDown" || asEventName == "ragdollStart"
-		NahIDWinNative.Log("PLAYER ANIM: " + asEventName + " (stamina " + pl.GetActorValue("Stamina") + ")")
 		if asEventName == "staggerStart"
 			OnPlayerStagger()
 		endif

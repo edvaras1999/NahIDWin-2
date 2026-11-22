@@ -573,10 +573,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 16 && buildTab == tab
+	if count > 0 && tableRev == 17 && buildTab == tab
 		return
 	endif
-	tableRev = 16
+	tableRev = 17
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -725,7 +725,7 @@ Function BuildTable(int tab)
 	AddSetting(20, 1, "Safety", "ControlsWatchdog", "Vigia de controles (log)", "Controls watchdog (log)", "Regista no log quando algum controle do jogador (menu, movimento, etc.) fica bloqueado. Ajuda a achar o mod que impede de salvar.", "Logs when a player control (menu, movement, etc.) gets blocked. Helps find the mod that stops saving.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(20, 1, "Safety", "AutoFix", "Reativar controles presos (automatico)", "Auto re-enable stuck controls", "Se os controles ficarem bloqueados depois do combate (e fora de menus), o mod tenta reativa-los. Pode interferir em cenas de missoes.", "If controls stay blocked after combat (outside menus) the mod tries to re-enable them. May interfere with quest scenes.", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(20, 0, "Performance", "Mode", "Modo de desempenho (0 normal, 1 leve, 2 minimo)", "Performance mode (0 normal, 1 light, 2 minimal)", "Leve: sem log de depuracao, ciclos mais lentos. Minimo: tambem sem as nossas barras no HUD. Reinicie o jogo para aplicar tudo.", "Light: no debug log, slower loops. Minimal: also no own HUD bars. Restart the game to apply everything.", 0.0, 2.0, 1.0, 0.0)
-	AddSetting(14, 1, "Execution", "Enabled", "Execucao garantida", "Guaranteed execution", "Acertar uma arma num alvo com a postura quebrada executa-o (feitico do Inpa). Bosses so depois da 1a vida.", "Hitting a posture-broken target with a weapon executes it (Inpa spell). Bosses only after their 1st life.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(14, 2, "Execution", "Mode", "Modo de execucao", "Execution mode", "Desligado, Vanilla/VioLens (o golpe em postura quebrada e letal e o jogo escolhe a animacao), So animacao (feitico do Inpa) ou ambos. So actua quando acertas o alvo de perto.", "Off, Vanilla/VioLens (the hit on a posture-broken target is lethal and the game picks the animation), Only animation (Inpa spell) or both. Only happens when you hit the target up close.", 0.0, 3.0, 1.0, 0.0)
 	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Gigantes, chefes e dragoes levam dano grande (BigDamagePercent no ini, 50% da vida maxima) em vez de morrer.", "Giants, bosses and dragons take big damage (BigDamagePercent in the ini, 50% of max health) instead of dying.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "MeleeOnly", "Executar so com golpe corpo a corpo", "Execute only on melee hits", "Flechas e bestas nunca executam.", "Arrows and crossbow bolts never execute.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 0, "Execution", "Range", "Distancia maxima da execucao", "Maximum execution range", "Distancia (unidades do jogo) maxima entre voce e o alvo para executar. 300 = cerca de 4 m.", "Maximum distance (game units) between you and the target. 300 = about 4 m.", 100.0, 1000.0, 25.0, 300.0)
@@ -869,7 +869,7 @@ Function ApplyPreset(int tab, int lvl)
 		PV("Damage", "BlockedMultNpc", 0.85, 0.65, 0.40)
 		PV("Damage", "CreatureDamageMult", 0.45, 0.55, 0.70)
 		PV("Damage", "GiantDamageMult", 0.30, 0.40, 0.55)
-		PV("BigCreatures", "PoiseMult", 1.5, 1.75, 2.0)
+		PV("BigCreatures", "PoiseMult", 1.3, 1.5, 1.75)
 		PV("BigCreatures", "PostureMult", 1.5, 1.75, 2.0)
 		PV("BigCreatures", "PoiseRegenMult", 0.40, 0.55, 0.75)
 		PV("BigCreatures", "PostureRegenMult", 0.40, 0.55, 0.75)
@@ -1052,10 +1052,23 @@ int Function IniChoiceCount(string key)
 	if key == "BarStyle"
 		return 2
 	endif
+	if key == "Mode"
+		return 4
+	endif
 	return 3
 EndFunction
 
 string Function IniChoiceName(string key, int v)
+	if key == "Mode"
+		if v <= 0
+			return Tr("Off", "Desligado")
+		elseif v == 1
+			return Tr("Vanilla / VioLens", "Vanilla / VioLens")
+		elseif v == 2
+			return Tr("Only Script Animation (Inpa)", "So animacao (Inpa)")
+		endif
+		return Tr("Vanilla / VioLens + Animation", "Vanilla / VioLens + animacao")
+	endif
 	if key == "BarStyle"
 		if v == 0
 			return Tr("Flat", "Plana")
@@ -1100,6 +1113,9 @@ Function DrawBlock(int blk, string en, string pt)
 			float cur = RowVal(i)
 			if sType[i] == 2
 				Track(AddMenuOption(LabelOf(i), IniChoiceName(sKey[i], cur as int), sFlag), 9, i)
+				if sKey[i] == "Mode" && cur < 0.5
+					hide = true
+				endif
 			elseif sType[i] == 1
 				Track(AddToggleOption(LabelOf(i), cur > 0.5, sFlag), 2, i)
 				; funcao desligada: as opcoes dela ficam escondidas
@@ -1393,6 +1409,13 @@ Event OnOptionMenuOpen(int a_option)
 		opts9[0] = IniChoiceName(sKey[r], 0)
 		opts9[1] = IniChoiceName(sKey[r], 1)
 		opts9[2] = IniChoiceName(sKey[r], 2)
+		if n == 4
+			opts9 = new string[4]
+			opts9[0] = IniChoiceName(sKey[r], 0)
+			opts9[1] = IniChoiceName(sKey[r], 1)
+			opts9[2] = IniChoiceName(sKey[r], 2)
+			opts9[3] = IniChoiceName(sKey[r], 3)
+		endif
 		if n == 2
 			opts9 = new string[2]
 			opts9[0] = IniChoiceName(sKey[r], 0)

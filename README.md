@@ -134,6 +134,13 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
 - Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
 
+## v0.29.2 - execution mode menu, creature stamina, softer giants, lighter Papyrus
+
+- **Execution is now optional and OFF by default** (`[Execution] Mode`, MCM "Execution mode"): 1 = vanilla/VioLens (your hit on a posture-broken target becomes lethal and the game picks the animation), 2 = only the Inpa script animation, 3 = both. The DLL "guarantee" timer of 0.29.1 is removed: nothing happens without a hit from you, nothing at a distance. Giants, bosses and dragons take `BigDamagePercent` (50%) of max health when you hit them.
+- **Creature stamina**: attacks without a weapon cost 6% (normal) / 20% (power) of the max stamina, computed in the DLL.
+- **Giants**: poise multiplier 1.3 / 1.5 / 1.75 (Easy / Normal / Hard), was 1.5 / 1.75 / 2.0. Regeneration unchanged.
+- **Papyrus**: removed the diagnostic logging on stagger events and the 14-step execution watch loop.
+
 ## v0.29.1 - poise lock + protection, swing poise only when stamina is short, reliable execution, NPC stamina scan
 
 - **Swing poise cost** (exhaustion): a swing only costs poise when the stamina could not pay for it. Having stamina while still "exhausted" no longer drains poise.

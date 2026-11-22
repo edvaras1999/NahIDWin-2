@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.29.1 (poise lock + protection, swing poise only when stamina is short, reliable execution with DLL guarantee, NPC stamina scan)"
+#define PLUGIN_VERSION_STR	"0.29.2 (execution mode menu: off/vanilla-VioLens/animation/both, creature stamina 6%/20%, giants softer)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -304,7 +304,8 @@ namespace
 		int		execEnabled, execBigKill, execMeleeOnly;
 		float	execRange, execChance, execPowerChance;
 		float	lockProtectNpc, lockProtectPlayer, execBigPercent;	// v0.29.1
-		int		execGuaranteeMs, npcScanMs;								// v0.29.1
+		float	creatureSwingPct, creaturePowerPct;						// v0.29.2
+		int		execMode, npcScanMs;								// v0.29.1
 		float	gbDmgMult, lockPostureCapPct;			// execucao garantida (evento para o Papyrus); gigantes/dragoes: matar
 		float	bossPoiseMult, bossPostureMult, bigPoiseMult, bigPostureMult;
 		char	supAnim[48];						// evento de animacao ao ativar o Supremo (vazio = nenhum)
@@ -680,7 +681,7 @@ namespace
 		c.livesGoldPct	= IniF("Lives", "GoldLossPercent", 25.0f);
 		c.livesInvuln	= IniF("Lives", "InvulnSeconds", 3.0f);
 		c.livesEssential = IniI("Lives", "EssentialBleedout", 1);
-		c.execEnabled	= IniI("Execution", "Enabled", 1);
+		c.execEnabled	= 0;
 		c.execBigKill	= IniI("Execution", "KillBigCreatures", 1);
 		c.execMeleeOnly	= IniI("Execution", "MeleeOnly", 1);
 		c.execRange		= IniF("Execution", "Range", 300.0f);
@@ -688,8 +689,11 @@ namespace
 		c.execPowerChance = IniF("Execution", "PowerAttackChance", 100.0f);
 		c.execBigPercent = IniF("Execution", "BigDamagePercent", 50.0f);	// v0.29.1: gigantes/chefes/dragoes levam este % da vida maxima (em vez de morrer)
 		if(c.execBigPercent < 1.0f) c.execBigPercent = 1.0f; if(c.execBigPercent > 100.0f) c.execBigPercent = 100.0f;
-		c.execGuaranteeMs = IniI("Execution", "GuaranteeMs", 3500);	// v0.29.1: se a animacao nao matar neste tempo, a DLL mata
-		if(c.execGuaranteeMs < 800) c.execGuaranteeMs = 800; if(c.execGuaranteeMs > 8000) c.execGuaranteeMs = 8000;
+		c.execMode = IniI("Execution", "Mode", 0);	// v0.29.2: 0 desligado (padrao), 1 vanilla/VioLens (golpe letal), 2 so animacao (Inpa), 3 ambos
+		if(c.execMode < 0 || c.execMode > 3) c.execMode = 0;
+		c.execEnabled = (c.execMode != 0) ? 1 : 0;
+		c.creatureSwingPct = IniF("NpcStamina", "CreatureSwingPercent", 6.0f);	// v0.29.2: ataques de criaturas sem arma
+		c.creaturePowerPct = IniF("NpcStamina", "CreaturePowerPercent", 20.0f);
 		c.lockProtectNpc = IniF("StaggerLock", "ProtectSecondsNpc", 2.0f);	// v0.29.1
 		c.lockProtectPlayer = IniF("StaggerLock", "ProtectSecondsPlayer", 2.0f);
 		if(c.lockProtectNpc < 0.0f) c.lockProtectNpc = 0.0f; if(c.lockProtectPlayer < 0.0f) c.lockProtectPlayer = 0.0f;
@@ -888,6 +892,7 @@ namespace
 		DWORD	immuneUntil;	// (legado)
 		DWORD	staggerUntil;	// NPC em stagger do mod: sem guarda ate aqui
 		DWORD	lockUntil;		// staggerlock: poise a zero ate aqui; no fim o poise enche
+		DWORD	lethalUntil;		// v0.29.2: modo de execucao 1/3: o proximo golpe do jogador a este alvo e letal (o jogo escolhe a animacao vanilla/VioLens)
 		DWORD	protUntil;		// v0.29.1: depois do lock o poise enche e fica protegido (sem nova quebra) ate aqui
 		float	pCur;			// postura atual (SOBE com os golpes; ao chegar a pMax: BleedOut)
 		float	pMax;
@@ -1025,7 +1030,7 @@ namespace
 			}
 			PoiseState s;
 			s.isPl = (id == 0x14);
-			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.protUntil = 0; s.staggerUntil = 0;
+			s.cur = maxPoise; s.max = maxPoise; s.lastHit = 0; s.lastTick = now; s.immuneUntil = 0; s.lockUntil = 0; s.protUntil = 0; s.lethalUntil = 0; s.staggerUntil = 0;
 			s.pCur = 0.0f; s.pMax = maxPosture; s.pLastHit = 0; s.pTick = now; s.bleedUntil = 0; s.bleedImmuneUntil = 0; s.lightUntil = 0; s.rageUntil = 0; s.rageReadyAt = 0; s.exhaustReadyAt = 0; s.exhaustUntil = 0; s.invulnUntil = 0; s.bossUsed = 0; s.lastExec = 0; s.gbUntil = 0; s.big = big;
 			it = g_states.insert(std::make_pair(id, s)).first;
 		}
@@ -2614,7 +2619,6 @@ namespace
 	void NpcExhaustNow(Actor * a, UInt32 id, DWORD now);
 	void NpcSwingCharge(Actor * a, UInt32 id, DWORD now, float mult);
 	void ExecBigDamage(TESObjectREFR * ref, UInt32 id);	// v0.29.1
-	void ArmExecJob(UInt32 id, DWORD now, DWORD bleedEnd);
 	// Estamina gasta ao bloquear: dano x fator x diferenca de classe contra a ARMADURA (nao contra o bloqueio). Guarda partida se nao chega.
 	void BlockStamina(Actor * va, const HitInfo & h, float dmg, int atkCls, bool heavyAtk, DWORD now)
 	{
@@ -3090,7 +3094,6 @@ namespace
 		}
 
 		bool doExec = false, bossStagger = false;
-		DWORD execBleedEnd = 0;
 		bool applied = false, poiseBroke = false, postureBroke = false, poiseWasImmune = false, bleeding = false, raging = false, rageStarted = false;
 		float before = 0.0f, after = 0.0f, pBefore = 0.0f, pAfter = 0.0f;
 		int kind = 0;
@@ -3131,7 +3134,11 @@ namespace
 					const float ch = ((h.flags & TESHitEvent::kFlag_PowerAttack) != 0) ? g_cfg.execPowerChance : g_cfg.execChance;
 					if((float)(rand() % 100) >= ch) { okExec = false; why = "chance"; }
 				}
-				if(okExec) { st.lastExec = now; doExec = true; execBleedEnd = st.bleedUntil; }
+				if(okExec)
+				{
+					st.lastExec = now; doExec = true;
+					if((g_cfg.execMode & 1) && !(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss))) st.lethalUntil = now + 800;	// o golpe seguinte (este) passa a ser letal
+				}
 				else { static volatile LONG xl = 0; if(g_cfg.diag && InterlockedIncrement(&xl) <= 40) _MESSAGE("execution not requested on %08X: %s", h.victim.id, why); }
 			}
 
@@ -3271,7 +3278,8 @@ namespace
 		{
 			// v0.29.1: gigantes, chefes e dragoes levam dano grande (sem animacao); os outros recebem a animacao do Inpa e a DLL garante o resultado
 			if(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss)) ExecBigDamage(h.victimRef, h.victim.id);
-			else { SendExecuteEvent(h.victimRef, ""); ArmExecJob(h.victim.id, now, execBleedEnd); }
+			else if(g_cfg.execMode & 2) SendExecuteEvent(h.victimRef, "");
+			else { g_execTick = GetTickCount(); _MESSAGE("EXECUTION (lethal blow, vanilla/VioLens) armed on %08X", h.victim.id); }
 		}
 
 		// empurrao: so no stagger pesado e so em condicoes especificas
@@ -3635,6 +3643,23 @@ namespace
 						InterlockedExchange(&g_bossPending, (LONG)id);
 						why = "boss life (essential bleedout)";
 					}
+				}
+			}
+			if(!isPlayer && result < 0.0f && attacker && attacker->formID == 0x14 && (g_cfg.execMode & 1))
+			{
+				// v0.29.2: golpe do jogador num alvo em postura quebrada, modo vanilla/VioLens: o golpe e letal; o jogo escolhe a animacao de execucao (VioLens ou vanilla)
+				bool lethal = false;
+				Lock();
+				{
+					StateMap::iterator il = g_states.find(id);
+					if(il != g_states.end() && il->second.lethalUntil && (LONG)(now - il->second.lethalUntil) < 0) { lethal = true; il->second.lethalUntil = 0; }
+				}
+				Unlock();
+				float lc = 0.0f, lm = 0.0f;
+				if(lethal && ReadAV(self, 24, &lc, &lm) && lc > 0.0f && -result < lc + 1.0f)
+				{
+					result = -(lc + 1.0f);
+					why = "execution (lethal blow)";
 				}
 			}
 			if(isPlayer && result < 0.0f && g_playerExhausted && g_cfg.exhaustBlockMult > 1.0f && (LONG)(now - g_lastPlayerBlockedTick) < 300 && (LONG)(now - g_lastPlayerBlockedTick) >= -50)
@@ -4314,6 +4339,7 @@ namespace
 	void NpcSwingCharge(Actor * a, UInt32 id, DWORD now, float mult)
 	{
 		float w = 10.0f; int t = 1;
+		bool unarmedCreature = false;
 		{
 			// primeiro a arma realmente equipada; sem arma (criaturas, punhos) vale a ultima conhecida ou o valor por defeito: todos os ataques custam
 			float aw = 0.0f; int at = 0;
@@ -4321,20 +4347,27 @@ namespace
 			if(at > 0) { w = aw; t = at; }
 			else
 			{
+				bool known = false;
 				Lock();
 				{
 					std::map<UInt32, NpcWeapon>::iterator it = g_npcWeapon.find(id);
-					if(it != g_npcWeapon.end()) { w = it->second.w; t = it->second.t; }
+					if(it != g_npcWeapon.end()) { w = it->second.w; t = it->second.t; known = true; }
 				}
 				Unlock();
+				if(!known || (t == 0 && w <= 0.0f)) unarmedCreature = true;	// sem arma equipada e sem arma conhecida: ataque natural
 			}
 		}
 		if(t < 0 || t > 12) t = 1;
-		float cost = WeightCost(w) * g_cfg.typeMult[t] * mult;
-		if(!(cost > 0.0f)) return;
 		float c = 0.0f, m = 0.0f;
 		if(!ReadAV(a, 26, &c, &m) || m <= 0.0f) return;
-		if(g_cfg.npcSwingPct > 0.0f)
+		float cost = WeightCost(w) * g_cfg.typeMult[t] * mult;
+		if(unarmedCreature && g_cfg.creatureSwingPct > 0.0f)
+		{
+			// v0.29.2: ataque sem arma (aranhas, gigantes, animais): % fixa da estamina maxima, normal ou pesado; sem Papyrus
+			cost = m * ((mult > 1.0f && g_cfg.creaturePowerPct > 0.0f) ? g_cfg.creaturePowerPct : g_cfg.creatureSwingPct) / 100.0f;
+		}
+		else if(!(cost > 0.0f)) return;
+		if(!unarmedCreature && g_cfg.npcSwingPct > 0.0f)
 		{
 			const float ref = WeightCost(10.0f);
 			if(ref > 0.0f) cost = m * g_cfg.npcSwingPct / 100.0f * (cost / ref);
@@ -4580,22 +4613,7 @@ namespace
 		}
 	}
 
-	// ---- v0.29.1: execucao com garantia. A animacao do Inpa e tentada (pelo Papyrus); se o alvo ainda estiver vivo no prazo, a DLL mata. ----
-	std::map<UInt32, DWORD> g_execJobs;
-	void ArmExecJob(UInt32 id, DWORD now, DWORD bleedEnd)
-	{
-		DWORD dl = now + (DWORD)g_cfg.execGuaranteeMs;
-		if(bleedEnd && (LONG)(bleedEnd - dl) < 0)
-		{
-			// o alvo levanta-se quando o bleedout acaba: o prazo nunca passa disso
-			dl = bleedEnd - 150;
-			if((LONG)(dl - (now + 300)) < 0) dl = now + 300;
-		}
-		Lock();
-		if(g_execJobs.size() > 64) g_execJobs.clear();
-		g_execJobs[id] = dl;
-		Unlock();
-	}
+	// ---- v0.29.2: execucao pelo modo do menu. Gigantes/chefes/dragoes: dano grande quando o jogador acerta. Sem relogio: nada acontece sem um golpe do jogador. ----
 	void ExecBigDamage(TESObjectREFR * ref, UInt32 id)
 	{
 		g_execTick = GetTickCount();
@@ -4605,26 +4623,6 @@ namespace
 		const float dmg = mx * g_cfg.execBigPercent / 100.0f;
 		RestoreAV(a, 24, -dmg);
 		_MESSAGE("EXECUTION (big creature/boss) %08X: %.0f%% of max health = %.0f damage (health %.0f/%.0f before)", id, g_cfg.execBigPercent, dmg, cur, mx);
-	}
-	void TickExecJobs(DWORD now)
-	{
-		UInt32 ids[16]; int n = 0;
-		Lock();
-		for(std::map<UInt32, DWORD>::iterator it = g_execJobs.begin(); it != g_execJobs.end(); )
-		{
-			if((LONG)(now - it->second) >= 0) { if(n < 16) ids[n++] = it->first; g_execJobs.erase(it++); }
-			else ++it;
-		}
-		Unlock();
-		for(int i = 0; i < n; i++)
-		{
-			Actor * a = ActorFromFormId(ids[i]);
-			if(!a || Engine::LifeState(a) != 0) { _MESSAGE("EXECUTION %08X: victim already dead (animation or hit did it)", ids[i]); continue; }
-			float cur = 0.0f, mx = 0.0f;
-			if(!ReadAV(a, 24, &cur, &mx) || cur <= 0.0f) continue;
-			RestoreAV(a, 24, -(cur + 1.0f));
-			_MESSAGE("EXECUTION GUARANTEED: %08X was still alive after %d ms (animation did not finish it), killed by the DLL", ids[i], g_cfg.execGuaranteeMs);
-		}
 	}
 	void TickLockJobs(DWORD now)
 	{
@@ -5567,7 +5565,6 @@ namespace
 			lastTicks = now;
 			TickSupreme(now);
 			TickLockJobs(now);
-			TickExecJobs(now);
 			TickNpcSwings(now);
 			TickParryCap(now);
 			TickBlockReact(now);
