@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.29.2 (execution mode menu: off/vanilla-VioLens/animation/both, creature stamina 6%/20%, giants softer)"
+#define PLUGIN_VERSION_STR	"0.29.2 (execution mode menu, creature stamina, softer giants)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
