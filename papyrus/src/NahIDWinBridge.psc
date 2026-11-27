@@ -106,7 +106,11 @@ EndFunction
 
 ; v0.23: o mod passa a cobrar os custos de estamina (golpe, bash, bloqueio); os do jogo ficam a zero (os Game Settings nao ficam gravados no save)
 Function ZeroVanillaCosts()
-	if !NahIDWinNative.ModActive() || NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5 || NahIDWinNative.IniGetF("Stamina", "ZeroVanillaCosts", 1.0) < 0.5
+	if !NahIDWinNative.ModActive() || NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5
+		return
+	endif
+	OwnStamina()
+	if NahIDWinNative.IniGetF("Stamina", "ZeroVanillaCosts", 1.0) < 0.5
 		return
 	endif
 	ZeroGmst("fStaminaAttackWeaponBase")
@@ -116,6 +120,34 @@ Function ZeroVanillaCosts()
 	ZeroGmst("fStaminaPowerBashBase")
 	ZeroGmst("fStaminaBlockBase")
 	ZeroGmst("fStaminaBlockMult")
+EndFunction
+
+; v0.29.3: a regeneracao de estamina e do NahIDWin (o Inpa ja nao mexe em StaminaRate nem nestes dois Game Settings).
+; [Stamina] CombatRegenGMST = fCombatStaminaRegenRateMult (vanilla 0.35), RegenDelayMax = fStaminaRegenDelayMax, DamagedRegenDelay = fDamagedStaminaRegenDelay,
+; PlayerStaminaRate = taxa base minima do jogador (repara saves onde o Inpa a deixou a zero). OwnRegen=0 desliga tudo isto.
+Function OwnStamina()
+	if NahIDWinNative.IniGetF("Stamina", "OwnRegen", 1.0) < 0.5
+		return
+	endif
+	SetOwnGmst("fCombatStaminaRegenRateMult", NahIDWinNative.IniGetF("Stamina", "CombatRegenGMST", 0.35))
+	SetOwnGmst("fStaminaRegenDelayMax", NahIDWinNative.IniGetF("Stamina", "RegenDelayMax", 5.0))
+	SetOwnGmst("fDamagedStaminaRegenDelay", NahIDWinNative.IniGetF("Stamina", "DamagedRegenDelay", 0.5))
+	Actor pl = Game.GetPlayer()
+	float want = NahIDWinNative.IniGetF("Stamina", "PlayerStaminaRate", 5.0)
+	float have = pl.GetBaseActorValue("StaminaRate")
+	if have < want
+		pl.SetActorValue("StaminaRate", want)
+		NahIDWinNative.Log("StaminaRate of the player " + have + " -> " + want)
+	endif
+EndFunction
+
+Function SetOwnGmst(string gmstName, float v)
+	float before = Game.GetGameSettingFloat(gmstName)
+	RememberGmst(gmstName, before)
+	if Math.Abs(before - v) > 0.0001
+		Game.SetGameSettingFloat(gmstName, v)
+		NahIDWinNative.Log("GMST " + gmstName + ": " + before + " -> " + v)
+	endif
 EndFunction
 
 ; v0.28.0: os valores originais ficam guardados para os repor se o mod for desligado no menu (nao ha reinicio do jogo).
@@ -427,6 +459,10 @@ Function OnNahExecute(string eventName, string strArg, float numArg, Form sender
 	if strArg == "big"
 		return	; v0.29.1: a DLL aplica o dano grande; nada a fazer aqui
 	endif
+	if strArg == "kokusen"
+		DoKokusen(v, pl)
+		return
+	endif
 	GlobalVariable g = Game.GetFormFromFile(0x0011AADE, "NahIDWin.esp") as GlobalVariable
 	int mode = 2
 	if g
@@ -487,6 +523,32 @@ Function OnNahExecute(string eventName, string strArg, float numArg, Form sender
 		sp.Cast(v, pl)
 	endif
 	Utility.Wait(3.5)	; v0.29.2: so protege contra duas execucoes ao mesmo tempo (sem registo de diagnostico)
+	executing = false
+EndFunction
+
+; v0.29.3 Kokusen: impacto fatal com animacao. A DLL decide quando (a pancada que enche a postura, ou qualquer pancada durante a quebra).
+; A animacao e a do Inpa (killmove escolhido pela arma, o alvo fica parado e morre no frame do golpe); nao espera pela execucao propria do Inpa.
+Function DoKokusen(Actor v, Actor pl)
+	if executing
+		NahIDWinNative.Log("Kokusen: skipped (another execution is still running)")
+		return
+	endif
+	if v.IsInKillMove() || pl.IsInKillMove()
+		NahIDWinNative.Log("Kokusen: skipped (a kill move is already running)")
+		return
+	endif
+	Spell sp = Game.GetFormFromFile(0x0078D3B4, "NahIDWin.esp") as Spell
+	executing = true
+	if sp
+		NahIDWinNative.Log("Kokusen: animation on " + v)
+		sp.Cast(v, pl)
+		Utility.Wait(3.5)
+	else
+		NahIDWinNative.Log("Kokusen: the animation spell was not found, direct kill on " + v)
+		if !v.IsDead()
+			v.Kill(pl)
+		endif
+	endif
 	executing = false
 EndFunction
 
@@ -931,10 +993,26 @@ Function OnNahStagger(string eventName, string strArg, float numArg, Form sender
 			endif
 			; NPC sem estamina: stagger pesado
 		endif
+		if (kind == 1 || kind == 2 || kind == 3 || kind == 5 || kind == 7) && !(victim == Game.GetPlayer() && kind == 3)
+			if NahIDWinNative.IniGetF("Stagger", "Model", 1.0) >= 0.5
+				; v0.29.3: modelo Maxsu. A DLL calcula magnitude e direccao; o grafo escolhe a animacao (MSL pequeno/medio/grande/enorme, frente/tras)
+				float mg = NahIDWinNative.StaggerMag(packed)
+				if mg >= 0.0
+					DoModelStagger(victim, mg, NahIDWinNative.StaggerDir(packed), packed, kind)
+					return
+				endif
+			endif
+		endif
 		if victim == Game.GetPlayer() && kind == 3
 			; player heavy stagger: the vanilla backward stumble (like a giant or a shout), no knockdown and no bleedout
 			victim.SetAnimationVariableBool("bNoStagger", false)
 			victim.SetAnimationVariableFloat("StaggerMagnitude", NahIDWinNative.IniGetF("Stagger", "PlayerHeavyMagnitude", 1.0))
+			if NahIDWinNative.IniGetF("Stagger", "Model", 1.0) >= 0.5
+				float pd = NahIDWinNative.StaggerDir(packed)
+				if pd >= 0.0
+					victim.SetAnimationVariableFloat("staggerDirection", pd)
+				endif
+			endif
 			NahIDWinNative.OwnAnim(700)
 			Debug.SendAnimationEvent(victim, "StaggerStart")
 			NahIDWinNative.Ack(packed)
@@ -968,6 +1046,28 @@ Function OnNahStagger(string eventName, string strArg, float numArg, Form sender
 			endif
 		endif
 	endif
+	NahIDWinNative.Ack(packed)
+EndFunction
+
+; v0.29.3: stagger pelo grafo de animacao (o mesmo que o motor faz): magnitude + direccao + staggerStart. Sem feiticos e sem empurrao
+; (o empurrao do golpe forte lancava os Draugr para longe e deixava-os presos na animacao).
+Function DoModelStagger(Actor victim, float mag, float dir, int packed, int kind)
+	if victim.IsDead() || victim.IsInKillMove()
+		NahIDWinNative.Ack(packed)
+		return
+	endif
+	Actor pl = Game.GetPlayer()
+	if victim != pl || kind >= 2
+		victim.SetAnimationVariableBool("bNoStagger", false)
+	endif
+	victim.SetAnimationVariableFloat("StaggerMagnitude", mag)
+	if dir >= 0.0
+		victim.SetAnimationVariableFloat("staggerDirection", dir)
+	endif
+	if victim == pl
+		NahIDWinNative.OwnAnim(700)
+	endif
+	Debug.SendAnimationEvent(victim, "staggerStart")
 	NahIDWinNative.Ack(packed)
 EndFunction
 

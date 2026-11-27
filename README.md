@@ -134,6 +134,12 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Mode 0: the DLL plays the parry/block sound natively (TESV.exe 1.9.32 audio functions at 0xB9A5D0 / B9D1A0 / B9A0F0 / B9A2E0 / B99ED0, bytes checked at start; falls back off if they do not match). Papyrus DoParryFX no longer plays the sound (and no longer sends blockHitStart) in that case.
 - Log line BLOCK OWNER says who owns the block (Mode 0 DLL / Mode 1 Inpa).
 
+## v0.29.3 - Kokusen, Maxsu stagger model, stamina owned by this mod
+
+- **Kokusen** (`[Execution] Mode=4`, MCM "Execution mode"): the melee blow that fills the target's posture is already the Kokusen (anticipated), and if that blow is missed (range, chance) any melee blow during the broken-posture window is one. Fatal impact with the Inpa killmove animation (`[Kokusen] Animation=1`; 0 = lethal blow, the game picks the animation). Giants, bosses and dragons take `BigDamagePercent`. Modes 0-3 are unchanged.
+- **Maxsu stagger model** (`[Stagger] Model=1`, default): no spells and no push. The DLL computes the level (`[Behavior]` LightAnim / MediumAnim / PoiseBreakAnim / KnockbackAnim / ExhaustAnim, 1-4 -> magnitude 0.26 / 0.51 / 0.76 / 1.0) and the direction (0 front, 0.5 behind); the bridge sets the graph variables `StaggerMagnitude` and `staggerDirection` and sends `staggerStart`, as the engine does. With Maxsu Modern Staggerlock + Stagger Lock Behaviour installed the graph picks the MSL animations (small / medium / large / largest, backward / forward). This replaces the push that froze Draugr.
+- **Stamina owned by this mod**: `OwnStamina()` sets `fCombatStaminaRegenRateMult`, `fStaminaRegenDelayMax`, `fDamagedStaminaRegenDelay` from `[Stamina]` (also written by the menu) and repairs a player `StaminaRate` left at 0. The private Inpa pack (v0.12.0) stops the Inpa scripts from writing `StaminaRate` and those two Game Settings, and disables the Inpa menu, so only the NahIDWin menu is left.
+
 ## v0.29.2 - execution mode menu, creature stamina, softer giants, lighter Papyrus
 
 - **Execution is now optional and OFF by default** (`[Execution] Mode`, MCM "Execution mode"): 1 = vanilla/VioLens (your hit on a posture-broken target becomes lethal and the game picks the animation), 2 = only the Inpa script animation, 3 = both. The DLL "guarantee" timer of 0.29.1 is removed: nothing happens without a hit from you, nothing at a distance. Giants, bosses and dragons take `BigDamagePercent` (50%) of max health when you hit them.

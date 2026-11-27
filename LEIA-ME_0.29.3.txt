@@ -1,0 +1,29 @@
+NahIDWin 0.29.3 - ficheiros alterados
+
+Copiar para o repositorio (mesmas pastas):
+  nahidwin/NahIDWin.cpp
+  papyrus/src/NahIDWinBridge.psc
+  papyrus/src/NahIDWinMCM.psc
+  papyrus/src/NahIDWinNative.psc      (tem 2 funcoes novas: StaggerMag e StaggerDir)
+  dist/Data/SKSE/Plugins/NahIDWin.ini (copiar tambem para o jogo)
+  README.md
+
+Instalar no jogo (so o ficheiro privado, SEPARADO): NahIDWin-Inpa-privado-v0.12.0.zip -> mod proprio no MO2, DEPOIS do pacote "Inpa base v0.11.0" e do v0.11.1 (tem de ganhar nos mesmos ficheiros).
+
+O que muda:
+ 1. KOKUSEN (menu "Modo de execucao", 5a opcao; ini [Execution] Mode=4). Nao e automatico: so acontece quando TU acertas um golpe corpo a corpo, de perto.
+    - A pancada que enche a postura ja e o Kokusen (antecipado). Se essa nao o der (distancia, chance), qualquer golpe enquanto a postura esta quebrada e.
+    - Impacto fatal com a animacao de killmove do Inpa (escolhida pela arma). Gigantes/chefes/dragoes levam 50% da vida maxima.
+    - [Kokusen] Animation=0 faz o golpe letal sem animacao propria (o jogo/VioLens escolhe).
+    Os modos 0, 1, 2 e 3 ficam como estavam.
+ 2. STAGGER NO MODELO MAXSU (ini [Stagger] Model=1, e opcao no menu). Sem feiticos e sem empurrao: o mod mete a magnitude e a direccao no grafo de animacao e envia staggerStart, como o motor.
+    Niveis: leve=1, medio=2, poise quebrado=2, golpe forte/gigante=3, NPC sem estamina=3 (em [Behavior], 1 pequeno ... 4 enorme).
+    Para ter TODAS as animacoes do Maxsu instala (no MO2, por esta ordem): Maxsu Modern Staggerlock (precisa do Open Animation Replacer) e Stagger Lock Behaviour (ficheiros de behavior; inclui Draugr e Falmer).
+    Os Draugr deixam de congelar porque ja nao levam o empurrao nem o feitico.
+ 3. ESTAMINA SO NOSSA: o mod fixa fCombatStaminaRegenRateMult (0.35), fStaminaRegenDelayMax (5.0) e fDamagedStaminaRegenDelay (0.5) e garante StaminaRate >= 5 no jogador (se o Inpa o deixou a 0). Os dois primeiros tambem se mudam no menu (Estamina) e ficam guardados.
+    O pacote privado do Inpa v0.12.0 faz o Inpa deixar de mexer em StaminaRate e nesses dois Game Settings.
+ 4. MENU UNICO: o pacote privado desliga o menu proprio do Inpa. As opcoes dele ja existem no menu NahIDWin (parry, bloqueio, postura, jogador, NPC, aliados, estamina, resistencias, dificuldade, execucao, ressurreicao).
+
+No log procurar: "KOKUSEN (", "Kokusen: animation on", "GMST fCombatStaminaRegenRateMult", "StaminaRate of the player".
+Nao consegui testar dentro do jogo: se algum Draugr ainda prender, ou o Kokusen nao disparar, envia o NahIDWin.log.
+Nota: o Kokusen usa a animacao de execucao do Inpa (a mesma dos modos 2 e 3). A animacao pareada ao estilo Valhalla (PlayIdleWithTarget) precisa de uma funcao que os ficheiros de apoio de compilacao (papyrus/stubs) talvez nao tenham: para a fazer, envia-me essa pasta.

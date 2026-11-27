@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.29.2 (execution mode menu, creature stamina, softer giants)"
+#define PLUGIN_VERSION_STR	"0.29.3 (Kokusen execution, Maxsu stagger model, stamina owned by this mod)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -187,7 +187,7 @@ namespace
 		int		legacyStagger;
 		int		suppressVanilla, npcGuardRules, staggerGuardMs, npcBlockDelayMs, lockRepeatMs, lockRetryMs, lockMaxRetries;
 		float	wornWeightMid, wornWeightHeavy;
-		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int perfMode, tickMs; int statCache, tableCache, nativeEquip, nativeSwing;
+		float	wornScoreMid, wornScoreHeavy; int wornMode, hitchMs; int animTier[6]; int knockAnim, exhaustAnim; int perfMode, tickMs; int statCache, tableCache, nativeEquip, nativeSwing;
 		int bigAtkNormal, bigAtkPower;			// v0.29.0: classe do ataque de gigantes
 		float bigPoiseRegen, bigPostureRegen;	// v0.29.0: velocidade de regeneracao do poise/postura dos grandes
 		float classRegenCombat[4];				// v0.29.0: regeneracao em combate (%) por classe de armadura 1-3 (0 = usar CombatRegenPercent)
@@ -305,7 +305,7 @@ namespace
 		float	execRange, execChance, execPowerChance;
 		float	lockProtectNpc, lockProtectPlayer, execBigPercent;	// v0.29.1
 		float	creatureSwingPct, creaturePowerPct;						// v0.29.2
-		int		execMode, npcScanMs;								// v0.29.1
+		int		execMode, npcScanMs, kokusenAnim, execLethal;								// v0.29.1
 		float	gbDmgMult, lockPostureCapPct;			// execucao garantida (evento para o Papyrus); gigantes/dragoes: matar
 		float	bossPoiseMult, bossPostureMult, bigPoiseMult, bigPostureMult;
 		char	supAnim[48];						// evento de animacao ao ativar o Supremo (vazio = nenhum)
@@ -521,6 +521,10 @@ namespace
 		c.animTier[3]	= IniI("Behavior", "PoiseBreakAnim", 2);
 		c.animTier[4]	= IniI("Behavior", "PostureBreakAnim", 4);
 		c.animTier[5]	= IniI("Behavior", "ParryAnim", 2);
+		c.knockAnim		= IniI("Behavior", "KnockbackAnim", 3);	// v0.29.3: nivel Maxsu (1 pequeno .. 4 enorme) do stagger pesado de golpe forte/gigante
+		c.exhaustAnim	= IniI("Behavior", "ExhaustAnim", 3);	// v0.29.3: nivel Maxsu do stagger de um NPC sem estamina
+		if(c.knockAnim < 1 || c.knockAnim > 4) c.knockAnim = 3;
+		if(c.exhaustAnim < 1 || c.exhaustAnim > 4) c.exhaustAnim = 3;
 		for(int q = 1; q <= 5; q++) if(c.animTier[q] < 1 || c.animTier[q] > 4) c.animTier[q] = (q > 4) ? 2 : q;
 		c.suppressVanilla = IniI("Stagger", "SuppressVanilla", 1);
 		c.npcGuardRules	= 0;	// v0.24.2: NPC guard rules (block suppression) removed; NPC AI stays vanilla
@@ -689,8 +693,10 @@ namespace
 		c.execPowerChance = IniF("Execution", "PowerAttackChance", 100.0f);
 		c.execBigPercent = IniF("Execution", "BigDamagePercent", 50.0f);	// v0.29.1: gigantes/chefes/dragoes levam este % da vida maxima (em vez de morrer)
 		if(c.execBigPercent < 1.0f) c.execBigPercent = 1.0f; if(c.execBigPercent > 100.0f) c.execBigPercent = 100.0f;
-		c.execMode = IniI("Execution", "Mode", 0);	// v0.29.2: 0 desligado (padrao), 1 vanilla/VioLens (golpe letal), 2 so animacao (Inpa), 3 ambos
-		if(c.execMode < 0 || c.execMode > 3) c.execMode = 0;
+		c.execMode = IniI("Execution", "Mode", 0);	// 0 desligado (padrao), 1 vanilla/VioLens (golpe letal), 2 so animacao (Inpa), 3 ambos, 4 Kokusen (v0.29.3)
+		if(c.execMode < 0 || c.execMode > 4) c.execMode = 0;
+		c.kokusenAnim = IniI("Kokusen", "Animation", 1);	// v0.29.3: 1 = animacao pareada (Papyrus); 0 = golpe letal sem animacao propria (o jogo escolhe)
+		c.execLethal = (c.execMode == 1 || c.execMode == 3 || (c.execMode == 4 && !c.kokusenAnim)) ? 1 : 0;
 		c.execEnabled = (c.execMode != 0) ? 1 : 0;
 		c.creatureSwingPct = IniF("NpcStamina", "CreatureSwingPercent", 6.0f);	// v0.29.2: ataques de criaturas sem arma
 		c.creaturePowerPct = IniF("NpcStamina", "CreaturePowerPercent", 20.0f);
@@ -964,6 +970,7 @@ namespace
 	DWORD			g_latKSum[8] = {0}, g_latKMax[8] = {0}, g_latKN[8] = {0};	// v0.28.0: o mesmo por tipo de evento (1-3 stagger, 4 bleedout, 5 pesado, 6 parry, 7 exaustao)
 	DWORD			g_sentTick[64];
 	LONG			g_sentSeq[64];
+	float			g_sentMag[64], g_sentDir[64];	// v0.29.3: magnitude (modelo Maxsu) e direccao do stagger enviado (lidas pelo Papyrus)
 	DWORD			g_lastSummary = 0;
 	volatile LONG	g_hitLogged = 0;
 	volatile DWORD	g_playerShieldUntil = 0;
@@ -2120,6 +2127,18 @@ namespace
 		Unlock();
 	}
 
+	// v0.29.3: o agressor (pelo formID) esta atras da vitima? Sem objetos com destrutor: pode usar __try.
+	bool AttackerBehind(TESObjectREFR * victim, UInt32 attackerId)
+	{
+		__try
+		{
+			TESForm * af = LookupFormByID(attackerId);
+			if(af && af->formType == kFormType_Character && HitFromBehind(victim, (TESObjectREFR *)af)) return true;
+		}
+		__except(EXCEPTION_EXECUTE_HANDLER) { return false; }
+		return false;
+	}
+
 	// tier: 1 = stagger leve, 2 = medio, 3 = pesado (poise quebrou), 4 = BleedOut (postura quebrou)
 	void SendStaggerEvent(TESObjectREFR * victim, UInt32 attackerId, int tier)
 	{
@@ -2133,9 +2152,23 @@ namespace
 		_snprintf_s(arg, sizeof(arg), _TRUNCATE, "%d", (int)attackerId);
 		const float packed = (float)(seq * 8 + tier);
 
+		// v0.29.3 modelo Maxsu: nivel 1-4 -> magnitude 0.25*nivel+0.01 (o nivel 4, o maior, e 1.0); o grafo escolhe a animacao pelo nivel e pela direccao
+		float mag = -1.0f, dir = 0.0f;
+		{
+			int lvl = 0;
+			if(tier >= 1 && tier <= 3) lvl = g_cfg.animTier[tier];
+			else if(tier == 5) lvl = g_cfg.knockAnim;
+			else if(tier == 7) lvl = g_cfg.exhaustAnim;
+			if(lvl >= 1 && lvl <= 4) mag = (lvl >= 4) ? 1.0f : (0.25f * (float)lvl + 0.01f);
+			// direccao como o grafo vanilla: perto de 0 = o golpe vem da frente (cai para tras); 0.5 = vem de tras (cai para a frente)
+			if(attackerId && mag >= 0.0f && AttackerBehind(victim, attackerId)) dir = 0.5f;
+		}
+
 		Lock();
 		g_sentTick[seq & 63] = GetTickCount();
 		g_sentSeq[seq & 63] = seq;
+		g_sentMag[seq & 63] = mag;
+		g_sentDir[seq & 63] = dir;
 		Unlock();
 
 		PoiseModEvent evn("NahIDWin_Stagger", arg, packed, (TESForm *)victim);
@@ -2907,6 +2940,26 @@ namespace
 		return kind;
 	}
 
+	// v0.29.3: condicoes de alcance/arma/chance da execucao (o Kokusen antecipado usa-as na pancada que quebra a postura)
+	bool ExecEligible(const HitInfo & h, const char * & why)
+	{
+		if(g_cfg.execMeleeOnly && (h.weaponType == 7 || h.weaponType == 9)) { why = "ranged weapon"; return false; }
+		if(h.attackerActor && h.victimRef && g_cfg.execRange > 0.0f)
+		{
+			float d = 99999.0f;
+			__try
+			{
+				const float dx = h.attackerActor->pos.x - h.victimRef->pos.x, dy = h.attackerActor->pos.y - h.victimRef->pos.y, dz = h.attackerActor->pos.z - h.victimRef->pos.z;
+				d = sqrtf(dx * dx + dy * dy + dz * dz);
+			}
+			__except(EXCEPTION_EXECUTE_HANDLER) { d = 99999.0f; }
+			if(d > g_cfg.execRange) { why = "too far"; return false; }
+		}
+		const float ch = ((h.flags & TESHitEvent::kFlag_PowerAttack) != 0) ? g_cfg.execPowerChance : g_cfg.execChance;
+		if((float)(rand() % 100) >= ch) { why = "chance"; return false; }
+		return true;
+	}
+
 	void OnHit(TESHitEvent * evn)
 	{
 		if(!evn || !ModOn()) return;
@@ -3093,7 +3146,7 @@ namespace
 			}
 		}
 
-		bool doExec = false, bossStagger = false;
+		bool doExec = false, bossStagger = false, kokusenEarly = false;
 		bool applied = false, poiseBroke = false, postureBroke = false, poiseWasImmune = false, bleeding = false, raging = false, rageStarted = false;
 		float before = 0.0f, after = 0.0f, pBefore = 0.0f, pAfter = 0.0f;
 		int kind = 0;
@@ -3137,7 +3190,7 @@ namespace
 				if(okExec)
 				{
 					st.lastExec = now; doExec = true;
-					if((g_cfg.execMode & 1) && !(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss))) st.lethalUntil = now + 800;	// o golpe seguinte (este) passa a ser letal
+					if(g_cfg.execLethal && !(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss))) st.lethalUntil = now + 800;	// o golpe seguinte (este) passa a ser letal
 				}
 				else { static volatile LONG xl = 0; if(g_cfg.diag && InterlockedIncrement(&xl) <= 40) _MESSAGE("execution not requested on %08X: %s", h.victim.id, why); }
 			}
@@ -3206,8 +3259,17 @@ namespace
 					}
 				}
 
+				// v0.29.3 Kokusen antecipado: a pancada que enche a postura ja e o Kokusen (se falhar, ainda ha a janela normal)
+				if(g_cfg.execMode == 4 && postureBroke && !doExec && h.attackerId == 0x14 && h.sourceKind == 1 && !h.victim.isPlayer && h.victim.alive &&
+					now >= st.invulnUntil && (st.lastExec == 0 || now - st.lastExec > 4000))
+				{
+					const char * whyK = "";
+					if(ExecEligible(h, whyK)) { st.lastExec = now; doExec = true; kokusenEarly = true; }
+					else { static volatile LONG kl = 0; if(g_cfg.diag && InterlockedIncrement(&kl) <= 40) _MESSAGE("Kokusen (early) not requested on %08X: %s", h.victim.id, whyK); }
+				}
 				// que stagger? (a postura quebrada vence tudo; depois o poise quebrado; depois leve/medio)
 				if(postureBroke) kind = h.victim.isPlayer ? 3 : 4;
+				if(kokusenEarly && !(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss))) kind = 0;	// o Kokusen toca a sua propria animacao: sem ajoelhar
 				if(postureBroke && h.victim.isPlayer && g_cfg.brokenSeconds > 0.0f)
 				{
 					const DWORD be = now + (DWORD)(g_cfg.brokenSeconds * 1000.0f);
@@ -3278,6 +3340,7 @@ namespace
 		{
 			// v0.29.1: gigantes, chefes e dragoes levam dano grande (sem animacao); os outros recebem a animacao do Inpa e a DLL garante o resultado
 			if(g_cfg.execBigKill && (h.victim.mass >= g_cfg.kbGiantMass || h.victim.boss)) ExecBigDamage(h.victimRef, h.victim.id);
+			else if(g_cfg.execMode == 4 && g_cfg.kokusenAnim) { _MESSAGE("KOKUSEN%s on %08X", kokusenEarly ? " (anticipated: the blow that breaks the posture)" : " (during the broken posture window)", h.victim.id); SendExecuteEvent(h.victimRef, "kokusen"); }
 			else if(g_cfg.execMode & 2) SendExecuteEvent(h.victimRef, "");
 			else { g_execTick = GetTickCount(); _MESSAGE("EXECUTION (lethal blow, vanilla/VioLens) armed on %08X", h.victim.id); }
 		}
@@ -3645,7 +3708,7 @@ namespace
 					}
 				}
 			}
-			if(!isPlayer && result < 0.0f && attacker && attacker->formID == 0x14 && (g_cfg.execMode & 1))
+			if(!isPlayer && result < 0.0f && attacker && attacker->formID == 0x14 && g_cfg.execLethal)
 			{
 				// v0.29.2: golpe do jogador num alvo em postura quebrada, modo vanilla/VioLens: o golpe e letal; o jogo escolhe a animacao de execucao (VioLens ou vanilla)
 				bool lethal = false;
@@ -4866,6 +4929,25 @@ namespace
 		_MESSAGE("papyrus: extra lives used set to %d", (int)n);
 		SyncEssential();
 	}
+	// v0.29.3: magnitude e direccao do stagger (modelo Maxsu) do evento "packed"; -1 = sem modelo para este tipo
+	float N_StaggerMag(StaticFunctionTag *, SInt32 packed)
+	{
+		const LONG seq = (packed >> 3) & 0x1FFFFF;
+		float r = -1.0f;
+		Lock();
+		if(g_sentSeq[seq & 63] == seq) r = g_sentMag[seq & 63];
+		Unlock();
+		return r;
+	}
+	float N_StaggerDir(StaticFunctionTag *, SInt32 packed)
+	{
+		const LONG seq = (packed >> 3) & 0x1FFFFF;
+		float r = -1.0f;
+		Lock();
+		if(g_sentSeq[seq & 63] == seq) r = g_sentDir[seq & 63];
+		Unlock();
+		return r;
+	}
 	void N_Ack(StaticFunctionTag *, SInt32 packed)
 	{
 		const DWORD now = GetTickCount();
@@ -5295,6 +5377,8 @@ namespace
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, void, SInt32>("SwingEvent", "NahIDWinNative", N_SwingEvent, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetRegenPercent", "NahIDWinNative", N_GetRegenPercent, registry));
 		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, bool>("GetCombatRegen", "NahIDWinNative", N_GetCombatRegen, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, SInt32>("StaggerMag", "NahIDWinNative", N_StaggerMag, registry));
+		registry->RegisterFunction(new NativeFunction1 <StaticFunctionTag, float, SInt32>("StaggerDir", "NahIDWinNative", N_StaggerDir, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustSeconds", "NahIDWinNative", N_GetExhaustSeconds, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustMax", "NahIDWinNative", N_GetExhaustMax, registry));
 		registry->RegisterFunction(new NativeFunction0 <StaticFunctionTag, float>("GetExhaustTarget", "NahIDWinNative", N_GetExhaustTarget, registry));

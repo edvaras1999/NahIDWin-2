@@ -530,6 +530,12 @@ Function GlobalChanged(int gid, float v)
 		Refresh(zzzSekiro_player_parry2_spell)
 	elseif gid >= 22 && gid <= 30
 		Game.SetGameSettingFloat(GGmst(gid), v)
+		; v0.29.3: a regeneracao de estamina em combate e o atraso passam a ser do NahIDWin (o Inpa ja nao mexe nelas): ficam guardados no .ini
+		if gid == 25
+			NahIDWinNative.IniSetF("Stamina", "CombatRegenGMST", v)
+		elseif gid == 26
+			NahIDWinNative.IniSetF("Stamina", "RegenDelayMax", v)
+		endif
 		Refresh(zzzSekiro_player_main_spell)
 	elseif gid == 31
 		if v > 0.5
@@ -573,10 +579,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 17 && buildTab == tab
+	if count > 0 && tableRev == 18 && buildTab == tab
 		return
 	endif
-	tableRev = 17
+	tableRev = 18
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -663,6 +669,7 @@ Function BuildTable(int tab)
 	AddSetting(7, 0, "Stagger", "LightCooldownMs", "Espaco do stagger leve - NPCs (ms)", "Light stagger spacing - NPCs (ms)", "Tempo minimo entre dois staggers leves.", "Minimum time between two light staggers.", 100.0, 3000.0, 100.0, 700.0)
 	AddSetting(7, 0, "Stagger", "PlayerHeavyMagnitude", "Cambalear do jogador (magnitude)", "Player stumble (magnitude)", "Forca do cambalear para tras quando o poise ou a postura do jogador quebra. Sem queda nem bleedout.", "Strength of the backward stumble when the player's poise or posture breaks. No knockdown or bleedout.", 0.1, 10.0, 0.1, 1.0)
 	AddSetting(7, 0, "Stagger", "PlayerImmuneAfterSeconds", "Imunidade do jogador apos stagger (s)", "Player immunity after stagger (s)", "Depois de levares um stagger do jogo, ficas este tempo sem o levar de novo (para bloquear ou esquivar). 0 = desligado. Staggers pesados do mod passam sempre.", "After the game staggers you, you cannot be staggered again for this long (to block or dodge). 0 = off. The mod heavy staggers always go through.", 0.0, 5.0, 0.1, 1.5)
+	AddSetting(7, 1, "Stagger", "Model", "Stagger no modelo Maxsu", "Maxsu stagger model", "Ligado: o stagger usa as animacoes do Maxsu (pequeno, medio, grande, enorme, de frente ou de tras) pela magnitude e direcao, sem empurrar. Desligado: o modelo antigo (feiticos). Recomendado instalar Maxsu Modern Staggerlock e Stagger Lock Behaviour.", "On: stagger uses Maxsu's animations (small, medium, large, largest, front or back) through magnitude and direction, with no push. Off: the old model (spells). Installing Maxsu Modern Staggerlock and Stagger Lock Behaviour is recommended.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 1, "Stagger", "MediumOnPowerAttack", "Stagger medio em golpe forte", "Medium stagger on power attack", "Golpe forte ou de escudo sem bloquear da stagger medio.", "An unblocked power attack or bash causes a medium stagger.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 1, "Knockback", "Enabled", "Empurrao ligado", "Knockback enabled", "Empurrao no stagger pesado, so em condicoes especificas.", "Knockback on heavy stagger, only in specific conditions.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(7, 0, "Knockback", "Force", "Forca do empurrao", "Knockback force", "0 = sem empurrao.", "0 = no knockback.", 0.0, 5.0, 0.1, 1.0)
@@ -725,7 +732,7 @@ Function BuildTable(int tab)
 	AddSetting(20, 1, "Safety", "ControlsWatchdog", "Vigia de controles (log)", "Controls watchdog (log)", "Regista no log quando algum controle do jogador (menu, movimento, etc.) fica bloqueado. Ajuda a achar o mod que impede de salvar.", "Logs when a player control (menu, movement, etc.) gets blocked. Helps find the mod that stops saving.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(20, 1, "Safety", "AutoFix", "Reativar controles presos (automatico)", "Auto re-enable stuck controls", "Se os controles ficarem bloqueados depois do combate (e fora de menus), o mod tenta reativa-los. Pode interferir em cenas de missoes.", "If controls stay blocked after combat (outside menus) the mod tries to re-enable them. May interfere with quest scenes.", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(20, 0, "Performance", "Mode", "Modo de desempenho (0 normal, 1 leve, 2 minimo)", "Performance mode (0 normal, 1 light, 2 minimal)", "Leve: sem log de depuracao, ciclos mais lentos. Minimo: tambem sem as nossas barras no HUD. Reinicie o jogo para aplicar tudo.", "Light: no debug log, slower loops. Minimal: also no own HUD bars. Restart the game to apply everything.", 0.0, 2.0, 1.0, 0.0)
-	AddSetting(14, 2, "Execution", "Mode", "Modo de execucao", "Execution mode", "Desligado, Vanilla/VioLens (o golpe em postura quebrada e letal e o jogo escolhe a animacao), So animacao (feitico do Inpa) ou ambos. So actua quando acertas o alvo de perto.", "Off, Vanilla/VioLens (the hit on a posture-broken target is lethal and the game picks the animation), Only animation (Inpa spell) or both. Only happens when you hit the target up close.", 0.0, 3.0, 1.0, 0.0)
+	AddSetting(14, 2, "Execution", "Mode", "Modo de execucao", "Execution mode", "Desligado, Vanilla/VioLens (o golpe em postura quebrada e letal e o jogo escolhe a animacao), So animacao (Inpa), ambos, ou Kokusen: o golpe que enche a postura (ou qualquer golpe enquanto dura a quebra) e um impacto fatal com animacao. So actua quando acertas o alvo de perto.", "Off, Vanilla/VioLens (the hit on a posture-broken target is lethal and the game picks the animation), Only animation (Inpa), both, or Kokusen: the blow that fills the posture (or any blow while it stays broken) is a fatal impact with animation. Only happens when you hit the target up close.", 0.0, 4.0, 1.0, 0.0)
 	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Gigantes, chefes e dragoes levam dano grande (BigDamagePercent no ini, 50% da vida maxima) em vez de morrer.", "Giants, bosses and dragons take big damage (BigDamagePercent in the ini, 50% of max health) instead of dying.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "MeleeOnly", "Executar so com golpe corpo a corpo", "Execute only on melee hits", "Flechas e bestas nunca executam.", "Arrows and crossbow bolts never execute.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 0, "Execution", "Range", "Distancia maxima da execucao", "Maximum execution range", "Distancia (unidades do jogo) maxima entre voce e o alvo para executar. 300 = cerca de 4 m.", "Maximum distance (game units) between you and the target. 300 = about 4 m.", 100.0, 1000.0, 25.0, 300.0)
@@ -1053,7 +1060,7 @@ int Function IniChoiceCount(string key)
 		return 2
 	endif
 	if key == "Mode"
-		return 4
+		return 5
 	endif
 	return 3
 EndFunction
@@ -1066,8 +1073,10 @@ string Function IniChoiceName(string key, int v)
 			return Tr("Vanilla / VioLens", "Vanilla / VioLens")
 		elseif v == 2
 			return Tr("Only Script Animation (Inpa)", "So animacao (Inpa)")
+		elseif v == 3
+			return Tr("Vanilla / VioLens + Animation", "Vanilla / VioLens + animacao")
 		endif
-		return Tr("Vanilla / VioLens + Animation", "Vanilla / VioLens + animacao")
+		return "Kokusen"
 	endif
 	if key == "BarStyle"
 		if v == 0
@@ -1409,6 +1418,14 @@ Event OnOptionMenuOpen(int a_option)
 		opts9[0] = IniChoiceName(sKey[r], 0)
 		opts9[1] = IniChoiceName(sKey[r], 1)
 		opts9[2] = IniChoiceName(sKey[r], 2)
+		if n == 5
+			opts9 = new string[5]
+			opts9[0] = IniChoiceName(sKey[r], 0)
+			opts9[1] = IniChoiceName(sKey[r], 1)
+			opts9[2] = IniChoiceName(sKey[r], 2)
+			opts9[3] = IniChoiceName(sKey[r], 3)
+			opts9[4] = IniChoiceName(sKey[r], 4)
+		endif
 		if n == 4
 			opts9 = new string[4]
 			opts9[0] = IniChoiceName(sKey[r], 0)
