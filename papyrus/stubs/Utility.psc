@@ -3,3 +3,4 @@ Scriptname Utility Hidden
 Function Wait(float afWaitTime) global native
 bool Function IsInMenuMode() global native
 float Function GetCurrentRealTime() global native
+int Function RandomInt(int aiMin = 0, int aiMax = 100) global native

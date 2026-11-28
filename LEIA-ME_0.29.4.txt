@@ -1,0 +1,17 @@
+NahIDWin 0.29.4 - ficheiros alterados
+
+Copiar para o repositorio (mesmas pastas):
+  nahidwin/NahIDWin.cpp
+  papyrus/src/NahIDWinBridge.psc
+  papyrus/stubs/Actor.psc  Form.psc  ObjectReference.psc  Utility.psc  Idle.psc (novo)  Keyword.psc (novo)
+  .github/workflows/build.yml   (so acrescenta Idle.psc e Keyword.psc a lista de ficheiros)
+  dist/Data/SKSE/Plugins/NahIDWin.ini (copiar tambem para o jogo)
+  README.md
+
+O que muda:
+ 1. STAGGER, DIRECCAO: o golpe vindo de tras enviava 0.5, que o Stagger Lock Behaviour nao liga a nenhuma animacao. Agora e 0.3 ([Stagger] BehindDirection) e o Papyrus mete tambem msl_staggerLevel (1-4) e msl_staggerDirection (0 cai para tras, 1 para a frente).
+ 2. AVISO NO LOG: se modernstaggerlock_behavior.hkx nao existir e [Stagger] Model=1, o NahIDWin.log diz "WARNING: Modern Stagger Lock behavior ... not found".
+ 3. KOKUSEN PAREADO: humanoides tocam uma animacao de killmove pareada do jogo (PlayIdleWithTarget), escolhida pela arma (1 mao, 2 maos) e pelas costas (backstab). Criaturas, punhos ou falha: usa a animacao do Inpa; sem ela, mata directamente. Se a vitima sobreviver a animacao, e morta.
+No log procurar: "Kokusen: paired animation on", "did not start", "survived the animation", "WARNING: Modern Stagger Lock".
+Nao compilei nem testei no jogo. Se a animacao pareada nao arrancar (o alvo tem de estar perto e de frente), envia o NahIDWin.log.
+Limite conhecido: criaturas (urso, troll, etc.) ainda usam a animacao do Inpa; as animacoes proprias delas pedem identificar a raca (so uso FormIDs confirmados).

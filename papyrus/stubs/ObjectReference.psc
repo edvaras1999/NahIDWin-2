@@ -5,3 +5,5 @@ Function SetAnimationVariableBool(string arVariableName, bool abNewValue) native
 Function SetAnimationVariableFloat(string arVariableName, float afNewValue) native
 int Function GetItemCount(Form akItem) native
 Function RemoveItem(Form akItemToRemove, int aiCount = 1, bool abSilent = false, ObjectReference akOtherContainer = None) native
+Function SetAnimationVariableInt(string arVariableName, int aiNewValue) native
+float Function GetHeadingAngle(ObjectReference akOther) native

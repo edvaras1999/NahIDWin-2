@@ -63,7 +63,7 @@
 #include <functional>
 
 #define PLUGIN_NAME			"NahIDWin"
-#define PLUGIN_VERSION_STR	"0.29.3 (Kokusen execution, Maxsu stagger model, stamina owned by this mod)"
+#define PLUGIN_VERSION_STR	"0.29.4 (Kokusen paired animation, Maxsu stagger direction fix)"
 #define PLUGIN_LOG_FILE		"\\My Games\\Skyrim\\SKSE\\NahIDWin.log"
 
 static PluginHandle				g_pluginHandle	= kPluginHandle_Invalid;
@@ -157,6 +157,7 @@ namespace
 		float	regenDelay;			// segundos sem levar golpe antes de comecar a regenerar
 		float	resetFraction;		// poise depois do stagger (1.0 = cheio)
 		float	immuneSeconds;		// depois do stagger, o poise nao desce durante este tempo
+		float	behindDir;			// v0.29.4: staggerDirection enviado quando o golpe vem de tras (Maxsu/SLB: faixa 0.25-0.5 = cai para a frente)
 
 		// poise: ajustes de dificuldade
 		float	poiseMaxScalePlayer;	// o poise maximo do jogador e multiplicado por isto
@@ -471,6 +472,8 @@ namespace
 		GetPrivateProfileStringA("Stagger", "NativeEvent", "staggerStart", c.nativeEvent, sizeof(c.nativeEvent), g_iniPath);
 		c.resetFraction	= IniF("Stagger", "ResetFraction", 1.0f);
 		c.immuneSeconds	= IniF("Stagger", "ImmuneSeconds", 2.5f);
+		c.behindDir		= IniF("Stagger", "BehindDirection", 0.3f);
+		if(c.behindDir < 0.25f || c.behindDir >= 0.5f) c.behindDir = 0.3f;
 		c.lightEnabled	= IniI("Stagger", "LightEnabled", 1);
 		c.lightPlayer	= IniI("Stagger", "LightPlayer", 1);
 		c.lightNpc		= IniI("Stagger", "LightNPCs", 1);
@@ -2160,8 +2163,8 @@ namespace
 			else if(tier == 5) lvl = g_cfg.knockAnim;
 			else if(tier == 7) lvl = g_cfg.exhaustAnim;
 			if(lvl >= 1 && lvl <= 4) mag = (lvl >= 4) ? 1.0f : (0.25f * (float)lvl + 0.01f);
-			// direccao como o grafo vanilla: perto de 0 = o golpe vem da frente (cai para tras); 0.5 = vem de tras (cai para a frente)
-			if(attackerId && mag >= 0.0f && AttackerBehind(victim, attackerId)) dir = 0.5f;
+			// direccao: 0 = o golpe vem da frente (cai para tras); behindDir (0.3, faixa 0.25-0.5 do Stagger Lock Behaviour) = vem de tras (cai para a frente)
+			if(attackerId && mag >= 0.0f && AttackerBehind(victim, attackerId)) dir = g_cfg.behindDir;
 		}
 
 		Lock();
@@ -5861,6 +5864,12 @@ bool SKSEPlugin_Load(const SKSEInterface * skse)
 	g_mainTid = GetCurrentThreadId();
 	ResolveIniPath();
 	LoadConfig();
+	if(IniI("Stagger", "Model", 1) >= 1)
+	{
+		// v0.29.4: avisa no registo se o behavior do Maxsu (Modern Stagger Lock) nao esta instalado
+		if(GetFileAttributesA("Data\\meshes\\actors\\character\\behaviors\\modernstaggerlock_behavior.hkx") == INVALID_FILE_ATTRIBUTES)
+			_MESSAGE("WARNING: Modern Stagger Lock behavior (modernstaggerlock_behavior.hkx) not found; [Stagger] Model=1 will play the vanilla stagger animations only");
+	}
 
 	g_messaging = (SKSEMessagingInterface *)skse->QueryInterface(kInterface_Messaging);
 	if(!g_messaging || !g_messaging->RegisterListener(g_pluginHandle, "SKSE", OnMessage))

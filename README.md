@@ -183,3 +183,10 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - Stat cache: mass, unarmed damage, max health, armor, level and boss flag of each actor are read once and reused for 1 s; current health and life state are always read live.
 - Keys: `[Performance] StatCache` and `TableCache` (both 1; 0 restores the old behaviour). With diagnostics on, the SUMMARY line `SUMMARY cache:` shows hits and misses.
 - No rules or values changed.
+
+## v0.29.4 - Kokusen with paired animation, stagger direction fix
+
+- Stagger: the "hit from behind" direction was sent as 0.5, which the Stagger Lock Behaviour maps to no animation. It is now `[Stagger] BehindDirection` (default 0.3), and the Papyrus side also sets the Maxsu integer variables `msl_staggerLevel` (1-4) and `msl_staggerDirection` (0 falls backward, 1 forward).
+- The DLL logs a WARNING at start-up if `modernstaggerlock_behavior.hkx` is not found while `[Stagger] Model=1`.
+- Kokusen (Mode 4): humanoids play a vanilla paired killmove through `Actor.PlayIdleWithTarget` (Skyrim.esm idles chosen by weapon: 1H short/bleed-out/decap, backstab when the player is behind the victim, 2H decap slash). Creatures, fists or a failed idle fall back to the Inpa script animation, then to a direct kill. If the victim survives the animation it is killed.
+- New compile-only stubs: `Idle.psc`, `Keyword.psc`, plus `PlayIdleWithTarget`, `HasKeyword`, `SetAnimationVariableInt`, `GetHeadingAngle`, `RandomInt`. The workflow file map lists the two new stubs.

@@ -526,8 +526,48 @@ Function OnNahExecute(string eventName, string strArg, float numArg, Form sender
 	executing = false
 EndFunction
 
-; v0.29.3 Kokusen: impacto fatal com animacao. A DLL decide quando (a pancada que enche a postura, ou qualquer pancada durante a quebra).
-; A animacao e a do Inpa (killmove escolhido pela arma, o alvo fica parado e morre no frame do golpe); nao espera pela execucao propria do Inpa.
+; v0.29.4 Kokusen: impacto fatal com animacao pareada (a mesma ideia do Valhalla): o jogador toca um idle de killmove do jogo com a vitima como alvo.
+; A DLL decide quando (a pancada que enche a postura, ou qualquer pancada durante a quebra). Idle escolhido pela arma e pela posicao (costas).
+; Se o idle nao puder tocar (criatura, punhos, falha), usa a animacao do Inpa (feitico) e, sem ela, mata directamente.
+Idle Function PickKokusenIdle(Actor v, Actor pl)
+	Keyword npcKw = Game.GetFormFromFile(0x00013794, "Skyrim.esm") as Keyword
+	if !npcKw || !v.HasKeyword(npcKw)
+		return None
+	endif
+	int id = 0
+	int rt = pl.GetEquippedItemType(1)
+	float ang = v.GetHeadingAngle(pl)
+	if ang < 0.0
+		ang = 0.0 - ang
+	endif
+	if rt >= 1 && rt <= 4
+		if ang > 110.0
+			id = 0x000F465A	; pa_1HMKillMoveBackStab
+		else
+			int r = Utility.RandomInt(0, 5)
+			if r == 0
+				id = 0x000F469A	; ShortA
+			elseif r == 1
+				id = 0x000F469B
+			elseif r == 2
+				id = 0x000F469C
+			elseif r == 3
+				id = 0x000F469D
+			elseif r == 4
+				id = 0x000F469E	; BleedOutKill
+			else
+				id = 0x000F465D	; DecapBleedOut
+			endif
+		endif
+	elseif rt == 5 || rt == 6
+		id = 0x000F4680	; pa_2HMKillMoveDecapSlash
+	endif
+	if id == 0
+		return None
+	endif
+	return Game.GetFormFromFile(id, "Skyrim.esm") as Idle
+EndFunction
+
 Function DoKokusen(Actor v, Actor pl)
 	if executing
 		NahIDWinNative.Log("Kokusen: skipped (another execution is still running)")
@@ -537,16 +577,33 @@ Function DoKokusen(Actor v, Actor pl)
 		NahIDWinNative.Log("Kokusen: skipped (a kill move is already running)")
 		return
 	endif
-	Spell sp = Game.GetFormFromFile(0x0078D3B4, "NahIDWin.esp") as Spell
 	executing = true
-	if sp
-		NahIDWinNative.Log("Kokusen: animation on " + v)
-		sp.Cast(v, pl)
-		Utility.Wait(3.5)
-	else
-		NahIDWinNative.Log("Kokusen: the animation spell was not found, direct kill on " + v)
-		if !v.IsDead()
-			v.Kill(pl)
+	Idle ik = PickKokusenIdle(v, pl)
+	bool played = false
+	if ik
+		played = pl.PlayIdleWithTarget(ik, v)
+		if played
+			NahIDWinNative.Log("Kokusen: paired animation on " + v)
+			Utility.Wait(4.0)
+			if !v.IsDead() && !v.IsInKillMove()
+				NahIDWinNative.Log("Kokusen: the victim survived the animation, direct kill on " + v)
+				v.Kill(pl)
+			endif
+		else
+			NahIDWinNative.Log("Kokusen: the paired animation did not start on " + v)
+		endif
+	endif
+	if !played
+		Spell sp = Game.GetFormFromFile(0x0078D3B4, "NahIDWin.esp") as Spell
+		if sp
+			NahIDWinNative.Log("Kokusen: animation (Inpa) on " + v)
+			sp.Cast(v, pl)
+			Utility.Wait(3.5)
+		else
+			NahIDWinNative.Log("Kokusen: no animation available, direct kill on " + v)
+			if !v.IsDead()
+				v.Kill(pl)
+			endif
 		endif
 	endif
 	executing = false
@@ -1063,6 +1120,20 @@ Function DoModelStagger(Actor victim, float mag, float dir, int packed, int kind
 	victim.SetAnimationVariableFloat("StaggerMagnitude", mag)
 	if dir >= 0.0
 		victim.SetAnimationVariableFloat("staggerDirection", dir)
+	endif
+	; v0.29.4: o behavior do Maxsu escolhe a animacao por duas variaveis inteiras (nivel 1-4; direccao 0 = cai para tras, 1 = cai para a frente);
+	; definem-se tambem aqui, para nao depender do calculo interno do behavior
+	int lvl = (mag * 4.0) as int
+	if lvl < 1
+		lvl = 1
+	elseif lvl > 4
+		lvl = 4
+	endif
+	victim.SetAnimationVariableInt("msl_staggerLevel", lvl)
+	if dir >= 0.25
+		victim.SetAnimationVariableInt("msl_staggerDirection", 1)
+	else
+		victim.SetAnimationVariableInt("msl_staggerDirection", 0)
 	endif
 	if victim == pl
 		NahIDWinNative.OwnAnim(700)
