@@ -106,7 +106,11 @@ EndFunction
 
 ; v0.23: o mod passa a cobrar os custos de estamina (golpe, bash, bloqueio); os do jogo ficam a zero (os Game Settings nao ficam gravados no save)
 Function ZeroVanillaCosts()
-	if !NahIDWinNative.ModActive() || NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5
+	if !NahIDWinNative.ModActive()
+		return
+	endif
+	OwnExecution()
+	if NahIDWinNative.IniGetF("Stamina", "Enabled", 1.0) < 0.5
 		return
 	endif
 	OwnStamina()
@@ -449,94 +453,76 @@ Function OnNahEssential(string eventName, string strArg, float numArg, Form send
 EndFunction
 
 ; Boss gastou a vida extra: o jogo fez o bleedout; espera, repoe a vida, tira a flag e volta a lutar.
-; Execucao: o jogador acertou um alvo com a postura quebrada. Gigantes/chefes/dragoes levam dano grande pela DLL (nao chegam aqui). Os outros: feitico de execucao do Inpa (animacao); a DLL garante a morte se a animacao nao a der no prazo.
+; v0.29.5: as execucoes so as decide a DLL (golpe que acerta, vida restante). Os dois interruptores do Inpa ficam sempre a 0 fora da nossa execucao:
+; assim o Inpa nunca lanca execucoes por conta propria (o gatilho de ataque forte em furtivo, que nao espera por acertar, fica desligado).
+Function OwnExecution()
+	GlobalVariable gk = Game.GetFormFromFile(0x0011AADE, "NahIDWin.esp") as GlobalVariable
+	if gk && !executing && gk.GetValue() != 0.0
+		gk.SetValue(0.0)
+	endif
+	GlobalVariable gs = Game.GetFormFromFile(0x008854C8, "NahIDWin.esp") as GlobalVariable
+	if gs && gs.GetValue() != 0.0
+		gs.SetValue(0.0)
+	endif
+EndFunction
+
+Actor Function GetExecutor()
+	Actor a = Game.GetForm(NahIDWinNative.ExecAttacker()) as Actor
+	if !a
+		a = Game.GetPlayer()
+	endif
+	return a
+EndFunction
+
+; Execucao: o jogador (ou um seguidor) acertou um alvo com a postura quebrada. A DLL diz que tipo:
+;  "script" = animacao de script do Inpa (a vida que resta nao cabe nos 30%, ou e gigante/chefe/dragao; o pacote privado faz o script dar 30% de dano);
+;  "kokusen" = execucao letal pareada (a vida que resta cabe nos 30%). O modo Vanilla/VioLens letal nao passa por aqui.
 Function OnNahExecute(string eventName, string strArg, float numArg, Form sender)
 	Actor v = sender as Actor
-	Actor pl = Game.GetPlayer()
 	if !v || v.IsDead()
 		return
 	endif
-	if strArg == "big"
-		return	; v0.29.1: a DLL aplica o dano grande; nada a fazer aqui
-	endif
+	Actor ex = GetExecutor()
 	if strArg == "kokusen"
-		DoKokusen(v, pl)
-		return
+		DoKokusen(v, ex)
+	elseif strArg == "script"
+		DoScriptExec(v, ex)
 	endif
-	GlobalVariable g = Game.GetFormFromFile(0x0011AADE, "NahIDWin.esp") as GlobalVariable
-	int mode = 2
-	if g
-		mode = g.GetValue() as int
-	endif
-	Spell sp = None
-	if mode == 2
-		sp = Game.GetFormFromFile(0x0078D3B4, "NahIDWin.esp") as Spell
-	elseif mode == 3
-		sp = Game.GetFormFromFile(0x007C9FB9, "NahIDWin.esp") as Spell
-	endif
-	if !sp
-		NahIDWinNative.Log("execution: Inpa killmove mode " + mode + " has no spell")
-		return
-	endif
+EndFunction
+
+; Animacao de script do Inpa (feitico "ALL": sem a lista de racas excluidas). O jogo deixa o feitico comecar so com zzzSekiro_killmove = 3,
+; por isso o valor e posto a 3 durante a execucao e volta a 0.
+Function DoScriptExec(Actor v, Actor ex)
 	if executing
-		NahIDWinNative.Log("execution: skipped (another one is still running)")
+		return
+	endif
+	if v.IsInKillMove() || ex.IsInKillMove()
+		return
+	endif
+	GlobalVariable gk = Game.GetFormFromFile(0x0011AADE, "NahIDWin.esp") as GlobalVariable
+	Spell sp = Game.GetFormFromFile(0x007C9FB9, "NahIDWin.esp") as Spell
+	if !gk || !sp
 		return
 	endif
 	executing = true
-	; [Execution] Method: 0 = espera pela execucao do proprio Inpa e so lanca a nossa se ela nao arrancar (evita duas execucoes ao mesmo tempo);
-	; 1 = lanca logo a execucao do Inpa (comportamento antigo); 2 = mata o alvo diretamente, sem animacao.
-	int method = NahIDWinNative.IniGetF("Execution", "Method", 0.0) as int
-	GlobalVariable hd = Game.GetFormFromFile(0x007BFDB8, "NahIDWin.esp") as GlobalVariable
-	if method == 2
-		Utility.Wait(0.3)
-		NahIDWinNative.Log("execution: method 2, direct kill " + v)
-		if !v.IsDead()
-			v.Kill(pl)
-		endif
-		executing = false
-		return
-	endif
-	bool inpaRunning = false
-	if method == 0
-		int w = 0
-		; v0.29.0: antes esperava ate 1.2 s (6 esperas) pela execucao do Inpa e, com o Papyrus ocupado, a nossa chegava 2-3 s depois (o alvo ja se levantara)
-		while w < 2 && !inpaRunning
-			Utility.Wait(0.15)
-			w += 1
-			if v.IsDead() || v.IsInKillMove() || pl.IsInKillMove()
-				inpaRunning = true
-			elseif hd && hd.GetValue() > 0.5
-				inpaRunning = true
-			endif
-		endWhile
-	else
-		Utility.Wait(0.35)
-	endif
-	if inpaRunning
-		NahIDWinNative.Log("execution: Inpa's own execution is already running (kill move/global/victim dead), ours is not cast")
-	elseif v.IsDead() || v.IsInKillMove() || pl.IsInKillMove()
-		NahIDWinNative.Log("execution: skipped (victim dead or a kill move already running)")
-		executing = false
-		return
-	else
-		NahIDWinNative.Log("execution: casting Inpa execution (mode " + mode + ", method " + method + ") on " + v + " player hp " + pl.GetActorValue("Health"))
-		sp.Cast(v, pl)
-	endif
-	Utility.Wait(3.5)	; v0.29.2: so protege contra duas execucoes ao mesmo tempo (sem registo de diagnostico)
+	gk.SetValue(3.0)
+	sp.Cast(v, ex)
+	Utility.Wait(5.0)
+	gk.SetValue(0.0)
 	executing = false
 EndFunction
 
-; v0.29.4 Kokusen: impacto fatal com animacao pareada (a mesma ideia do Valhalla): o jogador toca um idle de killmove do jogo com a vitima como alvo.
-; A DLL decide quando (a pancada que enche a postura, ou qualquer pancada durante a quebra). Idle escolhido pela arma e pela posicao (costas).
-; Se o idle nao puder tocar (criatura, punhos, falha), usa a animacao do Inpa (feitico) e, sem ela, mata directamente.
-Idle Function PickKokusenIdle(Actor v, Actor pl)
+; v0.29.5 Kokusen: execucao letal com animacao pareada (como o Valhalla): o executor toca um idle de killmove do jogo com a vitima como alvo.
+; Idle escolhido pela arma e pelas costas. Se este executor/arma nao tem idle (criatura, punhos), toca a animacao de script (30% de dano, que mata
+; porque a vida que resta cabe neles). Se o idle existe e nao arranca, nao acontece nada: sem morte directa.
+Idle Function PickKokusenIdle(Actor v, Actor ex)
 	Keyword npcKw = Game.GetFormFromFile(0x00013794, "Skyrim.esm") as Keyword
 	if !npcKw || !v.HasKeyword(npcKw)
 		return None
 	endif
 	int id = 0
-	int rt = pl.GetEquippedItemType(1)
-	float ang = v.GetHeadingAngle(pl)
+	int rt = ex.GetEquippedItemType(1)
+	float ang = v.GetHeadingAngle(ex)
 	if ang < 0.0
 		ang = 0.0 - ang
 	endif
@@ -568,44 +554,21 @@ Idle Function PickKokusenIdle(Actor v, Actor pl)
 	return Game.GetFormFromFile(id, "Skyrim.esm") as Idle
 EndFunction
 
-Function DoKokusen(Actor v, Actor pl)
+Function DoKokusen(Actor v, Actor ex)
 	if executing
-		NahIDWinNative.Log("Kokusen: skipped (another execution is still running)")
 		return
 	endif
-	if v.IsInKillMove() || pl.IsInKillMove()
-		NahIDWinNative.Log("Kokusen: skipped (a kill move is already running)")
+	if v.IsInKillMove() || ex.IsInKillMove()
+		return
+	endif
+	Idle ik = PickKokusenIdle(v, ex)
+	if !ik
+		DoScriptExec(v, ex)
 		return
 	endif
 	executing = true
-	Idle ik = PickKokusenIdle(v, pl)
-	bool played = false
-	if ik
-		played = pl.PlayIdleWithTarget(ik, v)
-		if played
-			NahIDWinNative.Log("Kokusen: paired animation on " + v)
-			Utility.Wait(4.0)
-			if !v.IsDead() && !v.IsInKillMove()
-				NahIDWinNative.Log("Kokusen: the victim survived the animation, direct kill on " + v)
-				v.Kill(pl)
-			endif
-		else
-			NahIDWinNative.Log("Kokusen: the paired animation did not start on " + v)
-		endif
-	endif
-	if !played
-		Spell sp = Game.GetFormFromFile(0x0078D3B4, "NahIDWin.esp") as Spell
-		if sp
-			NahIDWinNative.Log("Kokusen: animation (Inpa) on " + v)
-			sp.Cast(v, pl)
-			Utility.Wait(3.5)
-		else
-			NahIDWinNative.Log("Kokusen: no animation available, direct kill on " + v)
-			if !v.IsDead()
-				v.Kill(pl)
-			endif
-		endif
-	endif
+	ex.PlayIdleWithTarget(ik, v)
+	Utility.Wait(4.0)
 	executing = false
 EndFunction
 

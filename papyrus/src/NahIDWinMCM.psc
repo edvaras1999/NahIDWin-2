@@ -114,17 +114,6 @@ Function ApplyIniGlobals()
 	ApplyIniGlobal(5, "BlockMagic")
 	ApplyIniGlobal(7, "ResistPoison")
 	ApplyParryGlobal()
-	if NahIDWinNative.IniGetF("Menu", "ExecInit", 0.0) < 0.5
-		NahIDWinNative.IniSetF("Menu", "ExecInit", 1.0)
-		if GetG(19)
-			GetG(19).SetValue(3.0)
-			GlobalChanged(19, 3.0)
-		endif
-		if GetG(20)
-			GetG(20).SetValue(2.0)
-			GlobalChanged(20, 2.0)
-		endif
-	endif
 	if NahIDWinNative.IniGetF("Menu", "DifficultyInit", 0.0) < 0.5
 		NahIDWinNative.IniSetF("Menu", "DifficultyInit", 1.0)
 		if GetG(31) && GVal(31) > 0.5
@@ -579,10 +568,10 @@ EndFunction
 ; blocos: 1 Poise, 2 Postura, 3 Furia, 4 Exaustao, 5 Estamina (nossa), 6 Bloqueio dos NPCs, 7 Stagger e empurrao,
 ;         8 Multiplicadores por arma, 9 Armadura, 10 HUD, 11 Sistema, 12 Bloqueio normal
 Function BuildTable(int tab)
-	if count > 0 && tableRev == 18 && buildTab == tab
+	if count > 0 && tableRev == 19 && buildTab == tab
 		return
 	endif
-	tableRev = 18
+	tableRev = 19
 	buildTab = tab
 	sBlk = new int[128]
 	sType = new int[128]
@@ -732,10 +721,9 @@ Function BuildTable(int tab)
 	AddSetting(20, 1, "Safety", "ControlsWatchdog", "Vigia de controles (log)", "Controls watchdog (log)", "Regista no log quando algum controle do jogador (menu, movimento, etc.) fica bloqueado. Ajuda a achar o mod que impede de salvar.", "Logs when a player control (menu, movement, etc.) gets blocked. Helps find the mod that stops saving.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(20, 1, "Safety", "AutoFix", "Reativar controles presos (automatico)", "Auto re-enable stuck controls", "Se os controles ficarem bloqueados depois do combate (e fora de menus), o mod tenta reativa-los. Pode interferir em cenas de missoes.", "If controls stay blocked after combat (outside menus) the mod tries to re-enable them. May interfere with quest scenes.", 0.0, 1.0, 1.0, 0.0)
 	AddSetting(20, 0, "Performance", "Mode", "Modo de desempenho (0 normal, 1 leve, 2 minimo)", "Performance mode (0 normal, 1 light, 2 minimal)", "Leve: sem log de depuracao, ciclos mais lentos. Minimo: tambem sem as nossas barras no HUD. Reinicie o jogo para aplicar tudo.", "Light: no debug log, slower loops. Minimal: also no own HUD bars. Restart the game to apply everything.", 0.0, 2.0, 1.0, 0.0)
-	AddSetting(14, 2, "Execution", "Mode", "Modo de execucao", "Execution mode", "Desligado, Vanilla/VioLens (o golpe em postura quebrada e letal e o jogo escolhe a animacao), So animacao (Inpa), ambos, ou Kokusen: o golpe que enche a postura (ou qualquer golpe enquanto dura a quebra) e um impacto fatal com animacao. So actua quando acertas o alvo de perto.", "Off, Vanilla/VioLens (the hit on a posture-broken target is lethal and the game picks the animation), Only animation (Inpa), both, or Kokusen: the blow that fills the posture (or any blow while it stays broken) is a fatal impact with animation. Only happens when you hit the target up close.", 0.0, 4.0, 1.0, 0.0)
-	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Gigantes, chefes e dragoes levam dano grande (BigDamagePercent no ini, 50% da vida maxima) em vez de morrer.", "Giants, bosses and dragons take big damage (BigDamagePercent in the ini, 50% of max health) instead of dying.", 0.0, 1.0, 1.0, 1.0)
+	AddSetting(14, 2, "Execution", "Mode", "Modo de execucao", "Execution mode", "So actua quando TU acertas o alvo (o golpe que enche a postura ou qualquer golpe enquanto dura a quebra). Se a vida que resta cabe em 30% da vida maxima, a execucao e letal: Vanilla/VioLens (o jogo escolhe a animacao) ou Kokusen (animacao pareada). Senao, e nos gigantes/chefes/dragoes, toca a animacao de script (Inpa) com 30% de dano. Opcoes: Desligado, Vanilla/VioLens, So animacao (sempre 30%), ambos, Kokusen.", "Only when YOU hit the target (the blow that fills the posture, or any blow while it stays broken). If the remaining health fits in 30% of max health the execution is lethal: Vanilla/VioLens (the game picks the animation) or Kokusen (paired animation). Otherwise, and always on giants/bosses/dragons, the script animation (Inpa) plays with 30% damage. Options: Off, Vanilla/VioLens, Only animation (always 30%), both, Kokusen.", 0.0, 4.0, 1.0, 0.0)
+	AddSetting(14, 1, "Execution", "KillBigCreatures", "Executar gigantes/dragoes", "Execute giants/dragons", "Gigantes, chefes e dragoes nunca levam a execucao letal: so a animacao de script com 30% de dano da vida maxima.", "Giants, bosses and dragons never get the lethal execution: only the script animation with 30% of max health damage.", 0.0, 1.0, 1.0, 1.0)
 	AddSetting(14, 1, "Execution", "MeleeOnly", "Executar so com golpe corpo a corpo", "Execute only on melee hits", "Flechas e bestas nunca executam.", "Arrows and crossbow bolts never execute.", 0.0, 1.0, 1.0, 1.0)
-	AddSetting(14, 0, "Execution", "Range", "Distancia maxima da execucao", "Maximum execution range", "Distancia (unidades do jogo) maxima entre voce e o alvo para executar. 300 = cerca de 4 m.", "Maximum distance (game units) between you and the target. 300 = about 4 m.", 100.0, 1000.0, 25.0, 300.0)
 	AddSetting(14, 0, "Execution", "Chance", "Chance de execucao (%)", "Execution chance (%)", "Chance de executar a cada golpe normal num alvo em bleedout.", "Chance to execute on each normal hit on a bleeding-out target.", 0.0, 100.0, 5.0, 100.0)
 	AddSetting(14, 0, "Execution", "PowerAttackChance", "Chance com ataque de poder (%)", "Power attack chance (%)", "Chance de executar com um ataque de poder.", "Chance to execute with a power attack.", 0.0, 100.0, 5.0, 100.0)
 	AddSetting(15, 1, "Supreme", "Enabled", "Supremo Rage ligado", "Supreme Rage enabled", "Aura de fogo: tudo o que a furia da, mais dano em area. Cooldown muito longo.", "Fire aura: everything rage gives, plus area damage. Very long cooldown.", 0.0, 1.0, 1.0, 1.0)
@@ -1208,12 +1196,6 @@ Function DrawPage0()
 	GTog(3, "Magic Reflect", "Refletir Magia")
 	Hdr("Block Setting", "Bloqueio")
 	GTog(6, "Resist Melee Damage", "Resistir Dano Corpo a Corpo")
-	Hdr("Execution", "Execucao")
-	int a = AddMenuOption(Tr("Shinobi Execution", "Execucao Shinobi"), KillName(KillValue(KillIndex(GVal(19) as int))), sFlag)
-	Track(a, 6, 19)
-	int b = AddMenuOption(Tr("(beta) Sneak Execution", "(beta) Execucao Furtiva"), SneakName(GVal(20) as int), sFlag)
-	Track(b, 6, 20)
-	GSli(21, "Sneak Execution Damage Mult", "Dano da Execucao Furtiva")
 	Hdr("Difficulty Game Setting", "Dificuldade (Game Setting)")
 	GTog(31, "Player Difficulty Change", "Mudar Dificuldade do Jogador")
 	GSliD(32, "Player taken damage mult", "Dano que o Jogador Recebe", GVal(31) > 0.5)

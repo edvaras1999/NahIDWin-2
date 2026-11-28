@@ -74,6 +74,7 @@ int Function RecentAttacker(int idx) global native
 ; Evento de animacao opcional ao ativar o Supremo Rage ([Supreme] ActivationAnim; vazio = nenhum).
 string Function GetSupremeAnim() global native
 
-; v0.29.3: modelo de stagger do Maxsu. Magnitude (0.26, 0.51, 0.76 ou 1.0) e direccao (0 frente, 0.5 costas) do evento "packed". -1 = sem modelo.
+; v0.29.3: modelo de stagger do Maxsu. Magnitude (0.26, 0.51, 0.76 ou 1.0) e direccao (0 frente, 0.3 costas) do evento "packed". -1 = sem modelo.
 float Function StaggerMag(int packed) global native
 float Function StaggerDir(int packed) global native
+int Function ExecAttacker() global native

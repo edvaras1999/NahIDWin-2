@@ -190,3 +190,12 @@ GPL-3.0 (see `nahidwin/LICENSE`). Build base and addresses from FreeClimb LE / S
 - The DLL logs a WARNING at start-up if `modernstaggerlock_behavior.hkx` is not found while `[Stagger] Model=1`.
 - Kokusen (Mode 4): humanoids play a vanilla paired killmove through `Actor.PlayIdleWithTarget` (Skyrim.esm idles chosen by weapon: 1H short/bleed-out/decap, backstab when the player is behind the victim, 2H decap slash). Creatures, fists or a failed idle fall back to the Inpa script animation, then to a direct kill. If the victim survives the animation it is killed.
 - New compile-only stubs: `Idle.psc`, `Keyword.psc`, plus `PlayIdleWithTarget`, `HasKeyword`, `SetAnimationVariableInt`, `GetHeadingAngle`, `RandomInt`. The workflow file map lists the two new stubs.
+
+## v0.29.5 - executions by remaining health, one trigger
+
+- The only trigger is a blow of the player (or a follower) that hits the target: the blow that fills the posture (anticipated, now for every execution mode) or any melee blow while the posture stays broken. No distance limit (`[Execution] Range=0`).
+- Remaining health <= 30% of max health: lethal execution (Vanilla/VioLens lethal blow, or Kokusen paired animation). More health, and always giants/bosses/dragons: the Inpa script animation with 30% damage (private pack v0.13.0 patches `zzzsekiro_script_execution`: Hitframe damage = 30% of base health instead of a kill). Mode 2 always uses the script animation.
+- Kokusen: paired idle through `PlayIdleWithTarget`; with no paired idle for the weapon/target the script animation plays; a paired idle that fails to start does nothing. No direct kill anywhere.
+- The Inpa switches `zzzSekiro_killmove` and `zzzSekiro_killmove_sneak` are forced to 0 by `OwnExecution()` (the script animation sets killmove to 3 for its own cast). This disables the Inpa sneak trigger, which starts the animation on a power attack without waiting for a hit. The MCM rows "Shinobi Execution", "Sneak Execution" and the sneak damage slider, and their first-run defaults (3 and 2), are gone.
+- `ExecBigDamage` and `BigDamagePercent` are removed. New native `ExecAttacker()` so followers can be the executor.
+

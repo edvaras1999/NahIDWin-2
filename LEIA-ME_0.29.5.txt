@@ -1,0 +1,19 @@
+NahIDWin 0.29.5 - ficheiros alterados
+
+Copiar para o repositorio (mesmas pastas):
+  nahidwin/NahIDWin.cpp
+  papyrus/src/NahIDWinBridge.psc  NahIDWinMCM.psc  NahIDWinNative.psc
+  dist/Data/SKSE/Plugins/NahIDWin.ini (copiar tambem para o jogo)
+  README.md
+Instalar no jogo (SEPARADO, privado): NahIDWin-Inpa-privado-v0.13.0-PRIVADO.zip (substitui o v0.12.0; so acrescenta 1 ficheiro: zzzsekiro_script_execution.pex).
+
+O que muda:
+ 1. A causa das execucoes a distancia: o Inpa tem um 2o gatilho (Shinobi/furtivo) que lanca a animacao ao INICIAR um ataque forte, sem esperar por acertar. O nosso menu ligava-o por omissao (valor 2) na primeira vez. Agora os dois interruptores do Inpa ficam a 0 e as linhas do menu desapareceram.
+ 2. Unico gatilho: o teu golpe (ou de um seguidor) que ACERTA no alvo. O golpe que enche a postura ja dispara (para todos os modos) e a janela normal continua. Sem limite de distancia, sem logs novos.
+ 3. Regra da vida: vida restante <= 30% da vida maxima -> execucao letal (Vanilla/VioLens ou Kokusen pareado). Senao, e sempre em gigantes/chefes/dragoes, toca a animacao de script do Inpa que da 30% de dano (pode ou nao matar).
+    Modo 2 (So animacao) usa sempre a animacao de script.
+ 4. Kokusen: animacao pareada; sem idle pareado para a arma/alvo (criaturas, punhos) toca a de script; se o idle existe e nao arranca, nao acontece nada. Nao ha morte directa.
+ 5. Seguidores podem executar pela mesma regra.
+Nota: o feitico usado e o "ALL" do Inpa (sem a lista de racas excluidas), por isso criaturas que antes nao tinham animacao passam a ter a solo do Inpa.
+Se alterares "30%" no futuro: o valor esta na DLL (kExecPercent) e no pacote privado (0.3 no script); tem de ser igual nos dois.
+Nao compilei nem testei no jogo.
